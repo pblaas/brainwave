@@ -13,6 +13,15 @@ import json
 import time
 from datetime import datetime, timezone
 
+try:
+    import websockets
+
+    WEBSOCKETS_AVAILABLE = True
+except ImportError:
+    WEBSOCKETS_AVAILABLE = False
+
+USE_WEBSOCKETS = True
+
 
 class EnophoneClient:
     def __init__(self, host="localhost", port=8765):
@@ -29,12 +38,24 @@ class EnophoneClient:
         }
 
     async def connect(self):
+        if WEBSOCKETS_AVAILABLE:
+            try:
+                self.ws = await asyncio.wait_for(
+                    websockets.connect(self.uri), timeout=10.0
+                )
+                print(f"Connected to {self.uri}")
+                self.use_websockets = True
+                return True
+            except Exception as e:
+                print(f"WebSocket connection failed: {e}")
+                return False
         try:
             self.ws = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port), timeout=10.0
             )
             self.reader, self.writer = self.ws
             print(f"Connected to {self.uri}")
+            self.use_websockets = False
             return True
         except asyncio.TimeoutError:
             print(f"Timeout connecting to {self.uri}")
@@ -44,6 +65,22 @@ class EnophoneClient:
             return False
 
     async def receive_loop(self):
+        if WEBSOCKETS_AVAILABLE and getattr(self, "use_websockets", False):
+            try:
+                while self.running:
+                    try:
+                        message = await asyncio.wait_for(self.ws.recv(), timeout=5.0)
+                        self.latest_data = json.loads(message)
+                    except asyncio.TimeoutError:
+                        continue
+                    except Exception as e:
+                        print(f"WebSocket receive error: {e}")
+                        break
+            except Exception as e:
+                print(f"WebSocket error: {e}")
+            print("Disconnected from server")
+            return
+
         buffer = ""
         while self.running:
             try:
@@ -69,6 +106,10 @@ class EnophoneClient:
 
     async def close(self):
         self.running = False
+        if WEBSOCKETS_AVAILABLE and getattr(self, "use_websockets", False):
+            if hasattr(self, "ws"):
+                await self.ws.close()
+            return
         if hasattr(self, "writer"):
             self.writer.close()
             await self.writer.wait_closed()
