@@ -69,6 +69,24 @@ python enophone_http_server.py --mac XX:XX:XX:XX:XX:XX
 # Metrics available at http://localhost:8080/metrics
 ```
 
+## Channels
+
+Enophone has **4 EEG sensors** positioned at standard 10-20 system locations:
+
+| Channel | Position | Description |
+|---------|----------|-------------|
+| A1 | Left ear (mastoid) | Reference electrode |
+| C3 | Left motor cortex | Left hemisphere brain activity |
+| C4 | Right motor cortex | Right hemisphere brain activity |
+| A2 | Right ear (mastoid) | Reference electrode |
+
+The sensors capture brainwave data from the frontal parietal lobe (involved in sustained attention) and can detect all 5 brainwave types:
+- **Gamma** (40 Hz): Peak focus, high alertness
+- **Beta** (13 Hz): Active thinking, concentration
+- **Alpha** (10 Hz): Relaxed flow, creative states
+- **Theta** (7.83 Hz): Deep relaxation, meditation
+- **Delta** (1-4 Hz): Deep sleep
+
 ## Scripts
 
 | Script | Description |
