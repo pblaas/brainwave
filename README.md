@@ -2,6 +2,13 @@
 
 Real-time brainwave visualization using Enophone EEG headphones with BrainFlow SDK.
 
+## Images
+
+![WebGL Visual Art](img/brainwave_img1.png)
+![CLI Monitor](img/brainwave_img2.png)
+![GUI Monitor](img/brainwave_img3.png)
+![HTTP API](img/brainwave_img4.png)
+
 ## Requirements
 
 - Python 3.8+
