@@ -124,6 +124,7 @@ Higher Beta (active thinking) relative to Alpha (relaxation) indicates better fo
 | `enophone_http_server.py` | HTTP API for Grafana/polling |
 | `enophone_monitor.py` | CLI brainwave monitor |
 | `enophone_monitor_gui.py` | GUI visualization with matplotlib |
+| `enophone_ios_client.py` | iOS proxy - connects to remote server and re-broadcasts locally |
 | `enophone-art.html` | WebGL visual art (browser-based) |
 
 ## Usage
@@ -146,6 +147,28 @@ python enophone_monitor.py --mac XX:XX:XX:XX:XX:XX
 ```bash
 python enophone_monitor_gui.py --mac XX:XX:XX:XX:XX:XX --gui
 ```
+
+## iOS/macOS Usage (Proxy Mode)
+
+Since BrainFlow requires direct Bluetooth access which doesn't work on iOS/macOS, use this architecture:
+
+1. **Linux machine** (has Bluetooth access):
+   ```bash
+   python enophone_websocket_server.py --mac XX:XX:XX:XX:XX:XX
+   ```
+
+2. **iOS/macOS device** (runs the proxy):
+   ```bash
+   # Connect to remote Linux server and expose locally
+   python enophone_ios_client.py --host <linux-ip> --remote-port 8765 --local-port 8765
+   ```
+
+3. **Local apps** connect to:
+   ```
+   ws://localhost:8765
+   ```
+
+The proxy receives data from the Linux server and re-broadcasts it locally, allowing any app on iOS/macOS to connect as if the server were local.
 
 ## Visual Effects
 
