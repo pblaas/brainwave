@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enophone Brainwave Visualizations</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #0a0a0f;
+            color: #e0e0e0;
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            font-weight: 300;
+            margin-bottom: 10px;
+            color: #fff;
+            letter-spacing: 2px;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: rgba(255,255,255,0.4);
+            margin-bottom: 50px;
+            font-size: 0.9rem;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 24px;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: block;
+        }
+        
+        .card:hover {
+            background: rgba(255,255,255,0.06);
+            border-color: rgba(0,255,170,0.3);
+            transform: translateY(-2px);
+        }
+        
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: #00ffaa;
+        }
+        
+        .card-badge {
+            font-size: 0.7rem;
+            padding: 4px 10px;
+            border-radius: 20px;
+            background: rgba(0,255,170,0.1);
+            color: #00ffaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .card-description {
+            color: rgba(255,255,255,0.5);
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
+        
+        .card-meta {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        
+        .tag {
+            font-size: 0.7rem;
+            padding: 3px 8px;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.05);
+            color: rgba(255,255,255,0.4);
+        }
+        
+        .section-title {
+            text-align: center;
+            font-size: 1rem;
+            color: rgba(255,255,255,0.3);
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            margin: 40px 0 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Enophone Visualizations</h1>
+    <p class="subtitle">Real-time brainwave data visualization demos</p>
+    
+    <div class="grid">
+        <a href="enophone-art.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Original Art</span>
+                <span class="card-badge">Classic</span>
+            </div>
+            <p class="card-description">
+                The original visualization with flow fields, diagonal patterns, and particle effects that respond to brain activity. Features colorful waves and dynamic spark bursts on signal spikes.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Flow Fields</span>
+                <span class="tag">Sparks</span>
+                <span class="tag">Dynamic</span>
+            </div>
+        </a>
+        
+        <a href="enophone-demo1.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Demo 1</span>
+                <span class="card-badge">Modern</span>
+            </div>
+            <p class="card-description">
+                Clean geometric visualization with particle fields, concentric rings, orbiting dots, and flowing wave lines. Minimalist aesthetic with teal and magenta accents.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Particles</span>
+                <span class="tag">Rings</span>
+                <span class="tag">Orbiting</span>
+            </div>
+        </a>
+        
+        <a href="enophone-demo2.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Demo 2</span>
+                <span class="card-badge">Lab Instrument</span>
+            </div>
+            <p class="card-description">
+                Technical data-visualization style resembling scientific instruments. Features spectrum analyzer bars, oscilloscope waves, rotating data points, and grid field.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Spectrum</span>
+                <span class="tag">Oscilloscope</span>
+                <span class="tag">Data</span>
+            </div>
+        </a>
+        
+        <a href="enophone-demo3.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Demo 3</span>
+                <span class="card-badge">Space</span>
+            </div>
+            <p class="card-description">
+                Spiral galaxy with stars, nebula clouds, and orbiting particles. Creates a cosmic atmosphere with twinkling background stars and central pulse effects.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Galaxy</span>
+                <span class="tag">Nebula</span>
+                <span class="tag">Stars</span>
+            </div>
+        </a>
+        
+        <a href="enophone-demo4.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Demo 4</span>
+                <span class="card-badge">DNA</span>
+            </div>
+            <p class="card-description">
+                Animated DNA double helix with connecting rungs, floating spheres, and expanding energy rings. Reflects brain activity in helix rotation speed and strand spread.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Helix</span>
+                <span class="tag">Biology</span>
+                <span class="tag">Rings</span>
+            </div>
+        </a>
+        
+        <a href="enophone-demo5.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Demo 5</span>
+                <span class="card-badge">Hexagons</span>
+            </div>
+            <p class="card-description">
+                Hexagonal grid with rotating hex shapes, pulsing waves, and floating particles. Activity affects grid scale, rotation speed, and particle density.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Hexagons</span>
+                <span class="tag">Grid</span>
+                <span class="tag">Waves</span>
+            </div>
+        </a>
+        
+        <a href="enophone-demo6.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Demo 6</span>
+                <span class="card-badge">Electric</span>
+            </div>
+            <p class="card-description">
+                Lightning field with electric bolts, fractal branches, and glowing orbs with tendrils. High brain activity increases lightning frequency and orb intensity.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Lightning</span>
+                <span class="tag">Electric</span>
+                <span class="tag">Branches</span>
+            </div>
+        </a>
+        
+        <a href="enophone-demo7.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Demo 7</span>
+                <span class="card-badge">Water</span>
+            </div>
+            <p class="card-description">
+                Water-themed visualization with ripples, flowing streams, droplets, and circular waves. Brain activity controls ripple speed, droplet count, and stream intensity.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Ripples</span>
+                <span class="tag">Streams</span>
+                <span class="tag">Droplets</span>
+            </div>
+        </a>
+        
+        <a href="enophone-demo8.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Demo 8</span>
+                <span class="card-badge">Fire</span>
+            </div>
+            <p class="card-description">
+                Fire visualization with rising flames, ember trails, flickering pillars, and sparks. Activity increases flame height, particle count, and flicker intensity.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Fire</span>
+                <span class="tag">Flames</span>
+                <span class="tag">Sparks</span>
+            </div>
+        </a>
+        
+        <a href="enophone-demo9.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Demo 9</span>
+                <span class="card-badge">Ribbons</span>
+            </div>
+            <p class="card-description">
+                Flowing neural ribbons with interweaving wave patterns. Multiple ribbon strands respond to channel activity with dynamic colors and glowing edges. Particle sparkles trace along the ribbon paths.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Waves</span>
+                <span class="tag">Ribbons</span>
+                <span class="tag">Particles</span>
+            </div>
+        </a>
+        
+        <a href="enophone-demo10.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Demo 10</span>
+                <span class="card-badge">Particles</span>
+            </div>
+            <p class="card-description">
+                Orbiting brainwave particles in concentric layers. Each frequency band (Gamma, Beta, Alpha, Theta, Delta) has its own orbital ring with color-coded particles, orbital rings, and central activity glow.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Brainwaves</span>
+                <span class="tag">Orbiting</span>
+                <span class="tag">Particles</span>
+            </div>
+        </a>
+        
+        <a href="enophone-demo11.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Demo 11</span>
+                <span class="card-badge">Snow</span>
+            </div>
+            <p class="card-description">
+                Winter snow scene with falling snowflakes, layered depths, and snowflakes with branching crystal patterns. Activity increases flake count and sparkle intensity.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Snow</span>
+                <span class="tag">Crystals</span>
+                <span class="tag">Winter</span>
+            </div>
+        </a>
+        
+        <a href="enophone-demo12.html" class="card">
+            <div class="card-header">
+                <span class="card-title">Demo 12</span>
+                <span class="card-badge">Forest</span>
+            </div>
+            <p class="card-description">
+                Deep forest at night with silhouetted trees, swaying leaves, glowing fireflies, and stars in the sky. Activity increases tree height and firefly brightness.
+            </p>
+            <div class="card-meta">
+                <span class="tag">Trees</span>
+                <span class="tag">Fireflies</span>
+                <span class="tag">Night</span>
+            </div>
+        </a>
+    </div>
+</body>
+</html>

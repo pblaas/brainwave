@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enophone Brainwave Demo 12</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #020408; overflow: hidden; font-family: 'Share Tech Mono', monospace; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #info { position: fixed; top: 20px; left: 20px; color: rgba(100,255,150,0.8); font-size: 12px; z-index: 10; pointer-events: none; }
+        #channels { margin-top: 6px; font-size: 10px; color: rgba(100,255,150,0.5); line-height: 1.7; }
+        #status { position: fixed; top: 20px; right: 20px; color: rgba(0,255,255,0.8); font-size: 12px; z-index: 10; pointer-events: none; }
+        .connected { color: #00ff88 !important; text-shadow: 0 0 10px #00ff88; }
+        .disconnected { color: #ff3333 !important; }
+        #title { position: fixed; bottom: 20px; left: 20px; color: rgba(100,255,150,0.4); font-size: 10px; z-index: 10; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="info"><div>FOREST</div><div id="channels"></div></div>
+    <div id="status">Connecting...</div>
+    <div id="title">DEMO 12 — DEEP FOREST</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const gl = canvas.getContext('webgl');
+        const channelsEl = document.getElementById('channels');
+        const statusEl = document.getElementById('status');
+
+        let ws = null;
+        let targetChannelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let channelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let time = 0;
+        const smoothFactor = 0.06;
+        console.log("Enophone Forest initializing...");
+
+        function resize() { canvas.width = window.innerWidth * window.devicePixelRatio; canvas.height = window.innerHeight * window.devicePixelRatio; gl.viewport(0, 0, canvas.width, canvas.height); }
+        window.addEventListener('resize', resize);
+        resize();
+
+        const fragmentShaderSource = `
+            precision highp float;
+            uniform vec2 u_resolution;
+            uniform float u_time;
+            uniform float u_a1, u_c3, u_c4, u_a2;
+
+            #define PI 3.14159265359
+            
+            float hash(float n) { return fract(sin(n) * 43758.5453); }
+
+            float tree(vec2 p, float tx, float th, float tw) {
+                float trunkLeft = step(tx - tw * 0.5, p.x) * step(p.x, tx + tw * 0.5);
+                float trunkBottom = step(-0.5, p.y);
+                float trunkTop = step(p.y, -0.5 + th * 0.3);
+                float trunk = trunkLeft * trunkBottom * trunkTop;
+                
+                float canopyY = -0.5 + th * 0.2;
+                float canopyDist = abs(p.x - tx);
+                float canopyHeight = (1.0 - (p.y - canopyY) / (th * 0.8)) * th * 0.6;
+                float inCanopy = step(canopyDist, canopyHeight) * step(canopyY, p.y) * step(p.y, canopyY + th * 0.7);
+                
+                return max(trunk, inCanopy);
+            }
+
+            void main() {
+                vec2 uv = gl_FragCoord.xy / u_resolution;
+                vec2 p = uv * 2.0 - 1.0;
+                p.x *= u_resolution.x / u_resolution.y;
+                
+                float a1 = u_a1 / 100.0;
+                float c3 = u_c3 / 100.0;
+                float c4 = u_c4 / 100.0;
+                float a2 = u_a2 / 100.0;
+                
+                float activity = (abs(a1) + abs(c3) + abs(c4) + abs(a2)) / 4.0;
+                float t = u_time * 0.3;
+                
+                vec3 color = vec3(0.01, 0.02, 0.04);
+                
+                float skyGrad = smoothstep(-0.5, 0.8, p.y);
+                vec3 nightSky = mix(vec3(0.02, 0.04, 0.08), vec3(0.0, 0.01, 0.03), skyGrad);
+                color = color + nightSky;
+                
+                for (int i = 0; i < 30; i++) {
+                    float fi = float(i);
+                    vec2 starPos = vec2(hash(fi * 1.1) * 2.0 - 1.0, hash(fi * 2.3) * 1.2 - 0.2);
+                    float twinkle = sin(t * 2.0 + fi * 3.0) * 0.5 + 0.5;
+                    float star = smoothstep(0.008, 0.001, length(p - starPos));
+                    color = color + vec3(0.8, 0.9, 1.0) * star * twinkle * 0.4;
+                }
+                
+                float moonGlow = exp(-length(p - vec2(0.5, 0.5)) * 3.0) * 0.15;
+                color = color + vec3(0.7, 0.8, 1.0) * moonGlow;
+                
+                for (int i = 0; i < 8; i++) {
+                    float fi = float(i);
+                    float tx = -0.7 + fi * 0.2 + hash(fi) * 0.1;
+                    float th = 0.3 + hash(fi + 1.0) * 0.4 + activity * 0.2;
+                    float tw = 0.04 + hash(fi + 2.0) * 0.03;
+                    
+                    float tr = tree(p, tx, th, tw);
+                    if (tr > 0.5) {
+                        vec3 treeColor = mix(vec3(0.01, 0.03, 0.02), vec3(0.02, 0.05, 0.03), hash(fi));
+                        color = color + treeColor * tr * 0.5;
+                    }
+                }
+                
+                for (int i = 0; i < 25; i++) {
+                    float fi = float(i);
+                    float leafX = hash(fi * 3.0) * 1.4 - 0.7;
+                    float leafY = hash(fi * 4.0) * 0.8 - 0.3;
+                    float sway = sin(t + fi) * 0.02;
+                    vec2 leafPos = vec2(leafX + sway, leafY);
+                    float leafDist = length(p - leafPos);
+                    float leaf = smoothstep(0.025, 0.01, leafDist);
+                    float leafAlpha = hash(fi + 10.0) * 0.5 + 0.3;
+                    color = color + vec3(0.05, 0.15, 0.08) * leaf * leafAlpha;
+                }
+                
+                for (int i = 0; i < 15; i++) {
+                    float fi = float(i);
+                    float flyX = hash(fi * 5.0 + floor(t * 0.5) * 7.0) * 1.2 - 0.6;
+                    float flyY = hash(fi * 6.0 + floor(t * 0.5) * 8.0) * 0.6 - 0.2;
+                    float flyPulse = sin(t * 8.0 + fi * 4.0) * 0.5 + 0.5;
+                    vec2 flyPos = vec2(flyX, flyY);
+                    float flyDist = length(p - flyPos);
+                    float firefly = smoothstep(0.015, 0.002, flyDist);
+                    float flyGlow = exp(-flyDist * 20.0) * flyPulse;
+                    vec3 flyColor = mix(vec3(1.0, 0.9, 0.3), vec3(0.5, 1.0, 0.5), hash(fi));
+                    color = color + flyColor * firefly * activity * 0.8;
+                    color = color + flyColor * flyGlow * activity * 0.4;
+                }
+                
+                float groundFog = exp(-abs(p.y + 0.45) * 3.0) * 0.2;
+                color = color + vec3(0.05, 0.1, 0.08) * groundFog;
+                
+                float vignette = 1.0 - length(uv - 0.5) * 0.6;
+                color = color * vignette;
+                
+                color = clamp(color, 0.0, 1.0);
+                color = pow(color, vec3(0.95));
+                
+                gl_FragColor = vec4(color, 1.0);
+            }
+        `;
+
+        const vertexShaderSource = `attribute vec2 a_position; void main() { gl_Position = vec4(a_position, 0.0, 1.0); }`;
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error("Shader compile error:", gl.getShaderInfoLog(shader));
+                return null;
+            }
+            return shader;
+        }
+
+        function createProgram(gl, vertexShader, fragmentShader) {
+            const program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error("Program link error:", gl.getProgramInfoLog(program));
+                return null;
+            }
+            return program;
+        }
+
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+        console.log("Vertex shader:", vertexShader ? "OK" : "FAILED");
+        console.log("Fragment shader:", fragmentShader ? "OK" : "FAILED");
+        const program = createProgram(gl, vertexShader, fragmentShader);
+        console.log("Program:", program ? "OK" : "FAILED");
+
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+
+        const posLoc = program ? gl.getAttribLocation(program, "a_position") : -1;
+        const resLoc = program ? gl.getUniformLocation(program, "u_resolution") : -1;
+        const timeLoc = program ? gl.getUniformLocation(program, "u_time") : -1;
+        const a1Loc = program ? gl.getUniformLocation(program, "u_a1") : -1;
+        const c3Loc = program ? gl.getUniformLocation(program, "u_c3") : -1;
+        const c4Loc = program ? gl.getUniformLocation(program, "u_c4") : -1;
+        const a2Loc = program ? gl.getUniformLocation(program, "u_a2") : -1;
+
+        function connect() {
+            console.log("Connecting to WebSocket...");
+            statusEl.textContent = "Connecting...";
+            statusEl.className = "";
+            
+            ws = new WebSocket("ws://localhost:8765");
+
+            ws.onopen = () => {
+                console.log("WebSocket connected!");
+                statusEl.textContent = "Connected";
+                statusEl.className = "connected";
+            };
+
+            ws.onclose = (e) => {
+                console.log("WebSocket closed:", e.code, e.reason);
+                statusEl.textContent = "Disconnected";
+                statusEl.className = "disconnected";
+                setTimeout(connect, 2000);
+            };
+
+            ws.onerror = (e) => {
+                console.error("WebSocket error:", e);
+                if (ws.readyState !== WebSocket.OPEN) {
+                    statusEl.textContent = "Connection error";
+                }
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.means) {
+                        targetChannelMeans = data.means;
+                    }
+                } catch(e) {
+                    console.error("Parse error:", e);
+                }
+            };
+        }
+        connect();
+
+        function render() {
+            time += 0.016;
+            channelMeans.A1 += (targetChannelMeans.A1 - channelMeans.A1) * smoothFactor;
+            channelMeans.C3 += (targetChannelMeans.C3 - channelMeans.C3) * smoothFactor;
+            channelMeans.C4 += (targetChannelMeans.C4 - channelMeans.C4) * smoothFactor;
+            channelMeans.A2 += (targetChannelMeans.A2 - channelMeans.A2) * smoothFactor;
+            
+            const getBar = (val) => '▓'.repeat(Math.min(Math.round(Math.abs(val) / 15), 10));
+            
+            channelsEl.innerHTML = `
+A1: ${channelMeans.A1.toFixed(1)} ${getBar(channelMeans.A1)}<br>
+C3: ${channelMeans.C3.toFixed(1)} ${getBar(channelMeans.C3)}<br>
+C4: ${channelMeans.C4.toFixed(1)} ${getBar(channelMeans.C4)}<br>
+A2: ${channelMeans.A2.toFixed(1)} ${getBar(channelMeans.A2)}
+            `;
+
+            if (!program) {
+                requestAnimationFrame(render);
+                return;
+            }
+
+            gl.useProgram(program);
+            gl.enableVertexAttribArray(posLoc);
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+            gl.uniform2f(resLoc, canvas.width, canvas.height);
+            gl.uniform1f(timeLoc, time);
+            gl.uniform1f(a1Loc, channelMeans.A1);
+            gl.uniform1f(c3Loc, channelMeans.C3);
+            gl.uniform1f(c4Loc, channelMeans.C4);
+            gl.uniform1f(a2Loc, channelMeans.A2);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            requestAnimationFrame(render);
+        }
+        render();
+    </script>
+</body>
+</html>

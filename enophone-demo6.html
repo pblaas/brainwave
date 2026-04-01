@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enophone Brainwave Demo 6</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #050508; overflow: hidden; font-family: 'JetBrains Mono', monospace; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #info { position: fixed; bottom: 20px; left: 20px; color: rgba(255,255,255,0.5); font-size: 10px; z-index: 10; pointer-events: none; }
+        #channels { margin-top: 5px; font-size: 9px; color: rgba(255,255,255,0.35); }
+        #status { position: fixed; bottom: 20px; right: 20px; color: rgba(255,255,255,0.5); font-size: 10px; z-index: 10; pointer-events: none; }
+        .connected { color: #00ffaa !important; }
+        .disconnected { color: #ff5555 !important; }
+    </style>
+</head>
+<body>
+    <div id="info"><div>Channel Means</div><div id="channels"></div></div>
+    <div id="status">Connecting...</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const gl = canvas.getContext('webgl');
+        const channelsEl = document.getElementById('channels');
+        const statusEl = document.getElementById('status');
+
+        let ws = null;
+        let targetChannelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let channelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let time = 0;
+        const smoothFactor = 0.05;
+        console.log("Enophone Demo 6 initializing...");
+
+        function resize() { canvas.width = window.innerWidth * window.devicePixelRatio; canvas.height = window.innerHeight * window.devicePixelRatio; gl.viewport(0, 0, canvas.width, canvas.height); }
+        window.addEventListener('resize', resize);
+        resize();
+
+        const fragmentShaderSource = `
+            precision highp float;
+            uniform vec2 u_resolution;
+            uniform float u_time;
+            uniform float u_a1, u_c3, u_c4, u_a2;
+
+            #define PI 3.14159265359
+            float hash(float n) { return fract(sin(n) * 43758.5453); }
+            float noise(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+
+            void main() {
+                vec2 uv = gl_FragCoord.xy / u_resolution;
+                vec2 p = uv * 2.0 - 1.0;
+                p.x *= u_resolution.x / u_resolution.y;
+
+                float a1 = u_a1 / 150.0;
+                float c3 = u_c3 / 150.0;
+                float c4 = u_c4 / 150.0;
+                float a2 = u_a2 / 150.0;
+                
+                float avgActivity = (abs(a1) + abs(c3) + abs(c4) + abs(a2)) / 4.0;
+                float activity = clamp(avgActivity * 1.5, 0.0, 1.0);
+                
+                float leftBrain = (abs(c3) + abs(a1)) / 2.0;
+                float rightBrain = (abs(c4) + abs(a2)) / 2.0;
+                float asymmetry = (leftBrain - rightBrain) / (leftBrain + rightBrain + 0.01);
+                
+                float t = u_time * (0.4 + activity * 0.6);
+                
+                vec3 color = vec3(0.0);
+
+                // Lightning field - frequency and intensity based on activity
+                int boltCount = 4 + int(activity * 4.0);
+                for (int i = 0; i < 6; i++) {
+                    if (i >= boltCount) break;
+                    float fi = float(i);
+                    
+                    vec2 start = vec2(
+                        sin(fi * 3.0 + t * 0.5 + a1 * 2.0) * (0.6 + asymmetry * 0.2),
+                        0.6 - fi * 0.25
+                    );
+                    vec2 end = vec2(
+                        cos(fi * 2.0 + t * 0.3 + c3 * 2.0) * (0.6 - asymmetry * 0.2),
+                        -0.6 + fi * 0.2
+                    );
+                    
+                    vec2 dir = end - start;
+                    float len = length(dir);
+                    dir = normalize(dir);
+                    
+                    vec2 toP = p - start;
+                    float proj = clamp(dot(toP, dir), 0.0, len);
+                    vec2 closest = start + dir * proj;
+                    float dist = length(p - closest);
+                    
+                    float lightning = smoothstep(0.025 - activity * 0.01, 0.005, dist);
+                    float jitter = noise(vec2(proj * (20.0 + activity * 20.0), t * (10.0 + activity * 10.0) + fi));
+                    lightning *= 0.5 + jitter * 0.5;
+                    
+                    // Color based on channel activity
+                    vec3 lCol = vec3(0.0);
+                    if (i == 0) lCol = mix(vec3(0.0, 0.8, 1.0), vec3(0.2, 1.0, 0.8), a1);
+                    else if (i == 1) lCol = mix(vec3(0.8, 0.3, 1.0), vec3(1.0, 0.5, 0.2), c3);
+                    else if (i == 2) lCol = mix(vec3(0.3, 0.8, 1.0), vec3(0.8, 0.3, 0.9), c4);
+                    else lCol = mix(vec3(0.5, 0.9, 0.8), vec3(1.0, 0.8, 0.3), a2);
+                    
+                    color += lCol * lightning * (0.4 + activity * 0.4);
+                }
+
+                // Fractal branches - affected by channel values
+                for (int i = 0; i < 5; i++) {
+                    float fi = float(i);
+                    vec2 branchStart = vec2(
+                        sin(fi * 1.5 + a1) * (0.4 + activity * 0.1),
+                        cos(fi * 2.0 + c3) * (0.4 + activity * 0.1)
+                    );
+                    
+                    int branchDepth = 3 + int(activity * 2.0);
+                    for (int j = 0; j < 4; j++) {
+                        if (j >= branchDepth) break;
+                        float fj = float(j);
+                        float angle = fi * 0.8 + fj * 0.5 + t * (0.3 + activity * 0.4);
+                        float len = (0.15 - fj * 0.03) * (1.0 + activity * 0.3);
+                        vec2 branchEnd = branchStart + vec2(cos(angle), sin(angle)) * len;
+                        
+                        vec2 dir = branchEnd - branchStart;
+                        vec2 toP = p - branchStart;
+                        float proj = clamp(dot(toP, normalize(dir)), 0.0, len);
+                        vec2 closest = branchStart + normalize(dir) * proj;
+                        float d = length(p - closest);
+                        
+                        float branch = smoothstep(0.012, 0.003, d);
+                        vec3 branchCol = mix(vec3(0.2, 0.6, 0.9), vec3(0.8, 0.4, 1.0), activity);
+                        color += branchCol * branch * (0.3 - fj * 0.06);
+                        
+                        branchStart = branchEnd;
+                    }
+                }
+
+                // Electric orbs - count and size affected by activity
+                int orbCount = 5 + int(activity * 5.0);
+                for (int i = 0; i < 8; i++) {
+                    if (i >= orbCount) break;
+                    float fi = float(i);
+                    vec2 pos = vec2(
+                        sin(fi * 2.5 + t * 0.8 + a1 * 3.0) * (0.5 + activity * 0.2),
+                        cos(fi * 1.8 + t * 0.6 + c4 * 2.0) * (0.4 + activity * 0.15)
+                    );
+                    float size = (0.04 + sin(t * 5.0 + fi) * 0.015) * (1.0 + activity * 0.5);
+                    float dist = length(p - pos);
+                    float orb = smoothstep(size, size * 0.4, dist);
+                    
+                    // Electric tendrils - more tendrils with higher activity
+                    int tendrilCount = 4 + int(activity * 4.0);
+                    for (int k = 0; k < 6; k++) {
+                        if (k >= tendrilCount) break;
+                        float fk = float(k);
+                        float tendrilAngle = fk / 6.0 * PI * 2.0 + t * (3.0 + activity * 2.0);
+                        float tendrilLen = size * (1.5 + activity);
+                        vec2 tendrilEnd = pos + vec2(cos(tendrilAngle), sin(tendrilAngle)) * tendrilLen;
+                        
+                        vec2 tDir = tendrilEnd - pos;
+                        vec2 tToP = p - pos;
+                        float tProj = clamp(dot(tToP, normalize(tDir)), 0.0, tendrilLen);
+                        vec2 tClosest = pos + normalize(tDir) * tProj;
+                        float tDist = length(p - tClosest);
+                        
+                        float tendril = smoothstep(0.008, 0.002, tDist);
+                        tendril *= step(0.0, 1.0 - abs(p.x - pos.x) * 3.0);
+                        vec3 tendrilCol = mix(vec3(0.3, 0.8, 1.0), vec3(1.0, 0.9, 0.5), activity);
+                        color += tendrilCol * tendril * (0.3 + activity * 0.3);
+                    }
+                    
+                    vec3 orbCol = mix(vec3(0.0, 0.9, 0.8), vec3(1.0, 0.5, 0.8), activity);
+                    color += orbCol * orb * 0.7;
+                }
+
+                // Central energy - intensity based on activity
+                float centerDist = length(p);
+                float centerGlow = exp(-centerDist * (2.0 - activity * 0.5));
+                vec3 glowCol = mix(vec3(0.0, 0.5, 0.7), vec3(0.8, 0.3, 0.9), activity);
+                color += glowCol * centerGlow * (0.3 + activity * 0.5);
+
+                // Background electricity - more intense with activity
+                float bgNoise = noise(p * (8.0 + activity * 8.0) + t * (1.5 + activity));
+                color += vec3(0.05, 0.1, 0.15) * bgNoise * (0.2 + activity * 0.4);
+
+                color = pow(color, vec3(0.85));
+                color = clamp(color, 0.0, 1.0);
+                gl_FragColor = vec4(color, 1.0);
+            }
+        `;
+
+        const vertexShaderSource = `attribute vec2 a_position; void main() { gl_Position = vec4(a_position, 0.0, 1.0); }`;
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return null;
+            return shader;
+        }
+
+        function createProgram(gl, vertexShader, fragmentShader) {
+            const program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
+            return program;
+        }
+
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+        console.log("Vertex shader:", vertexShader ? "OK" : "FAILED");
+        console.log("Fragment shader:", fragmentShader ? "OK" : "FAILED");
+        const program = createProgram(gl, vertexShader, fragmentShader);
+        console.log("Program:", program ? "OK" : "FAILED");
+
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+
+        const posLoc = gl.getAttribLocation(program, "a_position");
+        const resLoc = gl.getUniformLocation(program, "u_resolution");
+        const timeLoc = gl.getUniformLocation(program, "u_time");
+        const a1Loc = gl.getUniformLocation(program, "u_a1");
+        const c3Loc = gl.getUniformLocation(program, "u_c3");
+        const c4Loc = gl.getUniformLocation(program, "u_c4");
+        const a2Loc = gl.getUniformLocation(program, "u_a2");
+
+        function connect() {
+            console.log("Connecting to WebSocket...");
+            statusEl.textContent = "Connecting...";
+            statusEl.className = "";
+            
+            ws = new WebSocket("ws://localhost:8765");
+
+            ws.onopen = () => {
+                console.log("WebSocket connected!");
+                statusEl.textContent = "Connected";
+                statusEl.className = "connected";
+            };
+
+            ws.onclose = (e) => {
+                console.log("WebSocket closed:", e.code, e.reason);
+                statusEl.textContent = "Disconnected";
+                statusEl.className = "disconnected";
+                setTimeout(connect, 2000);
+            };
+
+            ws.onerror = (e) => {
+                console.error("WebSocket error:", e);
+                if (ws.readyState !== WebSocket.OPEN) {
+                    statusEl.textContent = "Connection error";
+                }
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.means) {
+                        targetChannelMeans = data.means;
+                    }
+                } catch(e) {
+                    console.error("Parse error:", e);
+                }
+            };
+        }
+        connect();
+
+        function render() {
+            time += 0.016;
+            channelMeans.A1 += (targetChannelMeans.A1 - channelMeans.A1) * smoothFactor;
+            channelMeans.C3 += (targetChannelMeans.C3 - channelMeans.C3) * smoothFactor;
+            channelMeans.C4 += (targetChannelMeans.C4 - channelMeans.C4) * smoothFactor;
+            channelMeans.A2 += (targetChannelMeans.A2 - channelMeans.A2) * smoothFactor;
+            channelsEl.innerHTML = `A1: ${channelMeans.A1.toFixed(2)}<br>C3: ${channelMeans.C3.toFixed(2)}<br>C4: ${channelMeans.C4.toFixed(2)}<br>A2: ${channelMeans.A2.toFixed(2)}`;
+
+            gl.useProgram(program);
+            gl.enableVertexAttribArray(posLoc);
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+            gl.uniform2f(resLoc, canvas.width, canvas.height);
+            gl.uniform1f(timeLoc, time);
+            gl.uniform1f(a1Loc, channelMeans.A1);
+            gl.uniform1f(c3Loc, channelMeans.C3);
+            gl.uniform1f(c4Loc, channelMeans.C4);
+            gl.uniform1f(a2Loc, channelMeans.A2);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            requestAnimationFrame(render);
+        }
+        render();
+    </script>
+</body>
+</html>

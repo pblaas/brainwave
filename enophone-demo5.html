@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enophone Brainwave Demo 5</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a0f; overflow: hidden; font-family: 'Fira Code', monospace; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #info { position: fixed; top: 20px; left: 20px; color: rgba(255,255,255,0.5); font-size: 10px; z-index: 10; pointer-events: none; }
+        #channels { margin-top: 5px; font-size: 9px; color: rgba(255,255,255,0.35); }
+        #status { position: fixed; top: 20px; right: 20px; color: rgba(255,255,255,0.5); font-size: 10px; z-index: 10; pointer-events: none; }
+        .connected { color: #00ff99 !important; }
+        .disconnected { color: #ff4444 !important; }
+    </style>
+</head>
+<body>
+    <div id="info"><div>Channel Means</div><div id="channels"></div></div>
+    <div id="status">Connecting...</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const gl = canvas.getContext('webgl');
+        const channelsEl = document.getElementById('channels');
+        const statusEl = document.getElementById('status');
+
+        let ws = null;
+        let targetChannelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let channelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let time = 0;
+        const smoothFactor = 0.05;
+        console.log("Enophone Demo 5 initializing...");
+
+        function resize() { canvas.width = window.innerWidth * window.devicePixelRatio; canvas.height = window.innerHeight * window.devicePixelRatio; gl.viewport(0, 0, canvas.width, canvas.height); }
+        window.addEventListener('resize', resize);
+        resize();
+
+        const fragmentShaderSource = `
+            precision highp float;
+            uniform vec2 u_resolution;
+            uniform float u_time;
+            uniform float u_a1, u_c3, u_c4, u_a2;
+
+            #define PI 3.14159265359
+            float hash(float n) { return fract(sin(n) * 43758.5453); }
+
+            mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+
+            void main() {
+                vec2 uv = gl_FragCoord.xy / u_resolution;
+                vec2 p = uv * 2.0 - 1.0;
+                p.x *= u_resolution.x / u_resolution.y;
+
+                float a1 = u_a1 / 150.0;
+                float c3 = u_c3 / 150.0;
+                float c4 = u_c4 / 150.0;
+                float a2 = u_a2 / 150.0;
+                
+                float avgActivity = (abs(a1) + abs(c3) + abs(c4) + abs(a2)) / 4.0;
+                float activity = clamp(avgActivity * 1.5, 0.0, 1.0);
+                
+                float leftBrain = (abs(c3) + abs(a1)) / 2.0;
+                float rightBrain = (abs(c4) + abs(a2)) / 2.0;
+                float asymmetry = (leftBrain - rightBrain) / (leftBrain + rightBrain + 0.01);
+                
+                float t = u_time * (0.3 + activity * 0.5);
+                
+                vec3 color = vec3(0.0);
+
+                // Hexagonal grid - scale affected by activity
+                float gridScale = 6.0 + activity * 4.0;
+                vec2 hexP = p * gridScale;
+                vec2 hexId = floor(hexP);
+                vec2 hexF = fract(hexP);
+                float hex = smoothstep(0.05, 0.02, abs(max(abs(hexF.x - 0.5), abs(hexF.y - 0.5)) - 0.25));
+                vec3 gridCol = mix(vec3(0.1, 0.12, 0.18), vec3(0.15, 0.2, 0.3), activity);
+                color += gridCol * hex * (0.3 + activity * 0.2);
+
+                // Rotating hexagons - speed and count affected by activity
+                int hexCount = 5 + int(activity * 5.0);
+                for (int i = 0; i < 8; i++) {
+                    if (i >= hexCount) break;
+                    float fi = float(i);
+                    float angle = t * (0.5 + activity * 0.5) + fi * 0.8 + a1 * fi * 0.5;
+                    float radius = (0.15 + fi * 0.12) * (1.0 + activity * 0.3);
+                    vec2 hexPos = vec2(cos(angle), sin(angle)) * radius;
+                    
+                    vec2 hp = p - hexPos;
+                    hp = rot(t + fi + activity) * hp;
+                    
+                    float hexDist = max(abs(hp.x), abs(hp.y)) + min(abs(hp.x), abs(hp.y)) * 0.5;
+                    float hexShape = smoothstep(0.08 - activity * 0.02, 0.06 - activity * 0.02, hexDist);
+                    
+                    vec3 hexCol = vec3(0.0);
+                    if (i == 0) hexCol = mix(vec3(0.0, 0.9, 0.7), vec3(0.2, 1.0, 0.5), activity);
+                    else if (i == 1) hexCol = mix(vec3(0.8, 0.3, 0.9), vec3(1.0, 0.5, 0.2), activity);
+                    else if (i == 2) hexCol = mix(vec3(0.4, 0.6, 1.0), vec3(0.5, 0.8, 1.0), activity);
+                    else hexCol = mix(vec3(0.9, 0.4, 0.7), vec3(1.0, 0.8, 0.4), activity);
+                    
+                    color += hexCol * hexShape * (0.4 + activity * 0.3);
+                }
+
+                // Pulse waves - faster with higher activity
+                int waveCount = 3 + int(activity * 3.0);
+                for (int i = 0; i < 4; i++) {
+                    if (i >= waveCount) break;
+                    float fi = float(i);
+                    float waveRadius = mod(t * (0.3 + activity * 0.4) + fi * 0.3, 1.2);
+                    float wave = abs(length(p) - waveRadius);
+                    float w = smoothstep(0.03 - activity * 0.01, 0.01, wave);
+                    
+                    vec3 waveCol = vec3(0.0);
+                    if (i == 0) waveCol = mix(vec3(0.0, 1.0, 0.8), vec3(0.0, 0.8, 1.0), a1);
+                    else if (i == 1) waveCol = mix(vec3(1.0, 0.5, 0.3), vec3(1.0, 0.7, 0.2), c3);
+                    else if (i == 2) waveCol = mix(vec3(0.4, 0.6, 1.0), vec3(0.6, 0.4, 1.0), c4);
+                    else waveCol = mix(vec3(0.9, 0.4, 0.7), vec3(1.0, 0.6, 0.8), a2);
+                    
+                    color += waveCol * w * (0.2 + activity * 0.2) * (1.0 - waveRadius / 1.2);
+                }
+
+                // Floating particles - more particles with higher activity
+                int particleCount = 15 + int(activity * 20.0);
+                for (int i = 0; i < 30; i++) {
+                    if (i >= particleCount) break;
+                    float fi = float(i);
+                    vec2 pos = vec2(
+                        sin(fi * 2.3 + t * (0.6 + activity * 0.4) + a1 * 2.0) * (0.6 + activity * 0.2),
+                        cos(fi * 1.9 + t * (0.4 + activity * 0.3) + c4 * 1.5) * (0.5 + activity * 0.15)
+                    );
+                    float dist = length(p - pos);
+                    float particle = smoothstep(0.015, 0.003, dist);
+                    
+                    vec3 pCol = mix(vec3(0.0, 1.0, 0.7), vec3(1.0, 0.3, 0.6), hash(fi));
+                    pCol = mix(pCol, vec3(1.0, 1.0, 0.8), activity * 0.5);
+                    color += pCol * particle * (0.4 + activity * 0.4);
+                }
+
+                // Center point - glow intensity based on activity
+                float centerGlow = exp(-length(p) * (3.0 - activity));
+                vec3 centerCol = mix(vec3(0.0, 0.8, 0.6), vec3(1.0, 0.5, 0.8), activity);
+                color += centerCol * centerGlow * (0.5 + activity * 0.5);
+
+                // Vignette
+                color *= 1.0 - smoothstep(0.4, 1.3, length(p));
+
+                color = pow(color, vec3(0.9));
+                color = clamp(color, 0.0, 1.0);
+                gl_FragColor = vec4(color, 1.0);
+            }
+        `;
+
+        const vertexShaderSource = `attribute vec2 a_position; void main() { gl_Position = vec4(a_position, 0.0, 1.0); }`;
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return null;
+            return shader;
+        }
+
+        function createProgram(gl, vertexShader, fragmentShader) {
+            const program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
+            return program;
+        }
+
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+        console.log("Vertex shader:", vertexShader ? "OK" : "FAILED");
+        console.log("Fragment shader:", fragmentShader ? "OK" : "FAILED");
+        const program = createProgram(gl, vertexShader, fragmentShader);
+        console.log("Program:", program ? "OK" : "FAILED");
+
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+
+        const posLoc = gl.getAttribLocation(program, "a_position");
+        const resLoc = gl.getUniformLocation(program, "u_resolution");
+        const timeLoc = gl.getUniformLocation(program, "u_time");
+        const a1Loc = gl.getUniformLocation(program, "u_a1");
+        const c3Loc = gl.getUniformLocation(program, "u_c3");
+        const c4Loc = gl.getUniformLocation(program, "u_c4");
+        const a2Loc = gl.getUniformLocation(program, "u_a2");
+
+        function connect() {
+            console.log("Connecting to WebSocket...");
+            statusEl.textContent = "Connecting...";
+            statusEl.className = "";
+            
+            ws = new WebSocket("ws://localhost:8765");
+
+            ws.onopen = () => {
+                console.log("WebSocket connected!");
+                statusEl.textContent = "Connected";
+                statusEl.className = "connected";
+            };
+
+            ws.onclose = (e) => {
+                console.log("WebSocket closed:", e.code, e.reason);
+                statusEl.textContent = "Disconnected";
+                statusEl.className = "disconnected";
+                setTimeout(connect, 2000);
+            };
+
+            ws.onerror = (e) => {
+                console.error("WebSocket error:", e);
+                if (ws.readyState !== WebSocket.OPEN) {
+                    statusEl.textContent = "Connection error";
+                }
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.means) {
+                        targetChannelMeans = data.means;
+                    }
+                } catch(e) {
+                    console.error("Parse error:", e);
+                }
+            };
+        }
+        connect();
+
+        function render() {
+            time += 0.016;
+            channelMeans.A1 += (targetChannelMeans.A1 - channelMeans.A1) * smoothFactor;
+            channelMeans.C3 += (targetChannelMeans.C3 - channelMeans.C3) * smoothFactor;
+            channelMeans.C4 += (targetChannelMeans.C4 - channelMeans.C4) * smoothFactor;
+            channelMeans.A2 += (targetChannelMeans.A2 - channelMeans.A2) * smoothFactor;
+            channelsEl.innerHTML = `A1: ${channelMeans.A1.toFixed(2)}<br>C3: ${channelMeans.C3.toFixed(2)}<br>C4: ${channelMeans.C4.toFixed(2)}<br>A2: ${channelMeans.A2.toFixed(2)}`;
+
+            gl.useProgram(program);
+            gl.enableVertexAttribArray(posLoc);
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+            gl.uniform2f(resLoc, canvas.width, canvas.height);
+            gl.uniform1f(timeLoc, time);
+            gl.uniform1f(a1Loc, channelMeans.A1);
+            gl.uniform1f(c3Loc, channelMeans.C3);
+            gl.uniform1f(c4Loc, channelMeans.C4);
+            gl.uniform1f(a2Loc, channelMeans.A2);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            requestAnimationFrame(render);
+        }
+        render();
+    </script>
+</body>
+</html>

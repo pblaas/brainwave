@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enophone Brainwave Demo 8</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #050507; overflow: hidden; font-family: 'Roboto Mono', monospace; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #info { position: fixed; bottom: 20px; left: 20px; color: rgba(255,255,255,0.5); font-size: 10px; z-index: 10; pointer-events: none; }
+        #channels { margin-top: 5px; font-size: 9px; color: rgba(255,255,255,0.35); }
+        #status { position: fixed; bottom: 20px; right: 20px; color: rgba(255,255,255,0.5); font-size: 10px; z-index: 10; pointer-events: none; }
+        .connected { color: #00ffaa !important; }
+        .disconnected { color: #ff5555 !important; }
+    </style>
+</head>
+<body>
+    <div id="info"><div>Channel Means</div><div id="channels"></div></div>
+    <div id="status">Connecting...</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const gl = canvas.getContext('webgl');
+        const channelsEl = document.getElementById('channels');
+        const statusEl = document.getElementById('status');
+
+        let ws = null;
+        let targetChannelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let channelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let time = 0;
+        const smoothFactor = 0.05;
+        console.log("Enophone Demo 8 initializing...");
+
+        function resize() { canvas.width = window.innerWidth * window.devicePixelRatio; canvas.height = window.innerHeight * window.devicePixelRatio; gl.viewport(0, 0, canvas.width, canvas.height); }
+        window.addEventListener('resize', resize);
+        resize();
+
+        const fragmentShaderSource = `
+            precision highp float;
+            uniform vec2 u_resolution;
+            uniform float u_time;
+            uniform float u_a1, u_c3, u_c4, u_a2;
+
+            #define PI 3.14159265359
+            float hash(float n) { return fract(sin(n) * 43758.5453); }
+
+            mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+
+            void main() {
+                vec2 uv = gl_FragCoord.xy / u_resolution;
+                vec2 p = uv * 2.0 - 1.0;
+                p.x *= u_resolution.x / u_resolution.y;
+
+                float a1 = u_a1 / 150.0;
+                float c3 = u_c3 / 150.0;
+                float c4 = u_c4 / 150.0;
+                float a2 = u_a2 / 150.0;
+                
+                float avgActivity = (abs(a1) + abs(c3) + abs(c4) + abs(a2)) / 4.0;
+                float activity = clamp(avgActivity * 1.5, 0.0, 1.0);
+                
+                float leftBrain = (abs(c3) + abs(a1)) / 2.0;
+                float rightBrain = (abs(c4) + abs(a2)) / 2.0;
+                float asymmetry = (leftBrain - rightBrain) / (leftBrain + rightBrain + 0.01);
+                
+                float t = u_time * (0.3 + activity * 0.6);
+                
+                vec3 color = vec3(0.0);
+
+                // Fire particles - more particles with higher activity
+                int fireCount = 20 + int(activity * 25.0);
+                for (int i = 0; i < 40; i++) {
+                    if (i >= fireCount) break;
+                    float fi = float(i);
+                    vec2 startPos = vec2(sin(fi * 0.8 + c3 * 2.0) * (0.6 + asymmetry * 0.2), -0.6);
+                    float riseSpeed = 1.0 + activity * 0.8;
+                    float rise = mod(t * riseSpeed + fi * 0.15, 1.2);
+                    vec2 pos = startPos + vec2(sin(t * (2.0 + activity) + fi) * (0.1 + activity * 0.1), rise);
+                    
+                    float size = (0.03 + (1.0 - rise / 1.2) * 0.03) * (1.0 + activity * 0.3);
+                    float dist = length(p - pos);
+                    float particle = smoothstep(size, size * 0.3, dist);
+                    
+                    vec3 fireCol = mix(
+                        mix(vec3(1.0, 0.3, 0.0), vec3(1.0, 0.1, 0.0), activity),
+                        mix(vec3(1.0, 0.8, 0.2), vec3(1.0, 0.6, 0.1), activity),
+                        hash(fi)
+                    );
+                    float brightness = (0.5 + (1.0 - rise / 1.2) * 0.5) * (1.0 + activity * 0.5);
+                    color += fireCol * particle * brightness;
+                }
+
+                // Ember trails - affected by activity
+                int trailCount = 10 + int(activity * 15.0);
+                for (int i = 0; i < 20; i++) {
+                    if (i >= trailCount) break;
+                    float fi = float(i);
+                    vec2 trailStart = vec2(
+                        sin(fi * 1.3 + a1 * 2.0) * (0.5 + activity * 0.2),
+                        -0.5 + mod(t + fi * 0.1, 0.8)
+                    );
+                    vec2 trailEnd = trailStart + vec2(sin(t * (3.0 + activity * 2.0) + fi) * (0.15 + activity * 0.1), 0.2 + activity * 0.15);
+                    
+                    vec2 dir = trailEnd - trailStart;
+                    vec2 toP = p - trailStart;
+                    float proj = clamp(dot(toP, normalize(dir)), 0.0, length(dir));
+                    vec2 closest = trailStart + normalize(dir) * proj;
+                    float d = length(p - closest);
+                    
+                    float trail = smoothstep(0.02 - activity * 0.01, 0.005, d);
+                    vec3 trailCol = mix(vec3(1.0, 0.4, 0.1), vec3(1.0, 0.6, 0.2), activity);
+                    color += trailCol * trail * (0.4 + activity * 0.3);
+                }
+
+                // Flame pillars - height and intensity based on activity
+                int pillarCount = 3 + int(activity * 3.0);
+                for (int i = 0; i < 5; i++) {
+                    if (i >= pillarCount) break;
+                    float fi = float(i);
+                    float x = -0.6 + fi * 0.3 + asymmetry * 0.15;
+                    float flameHeight = (0.4 + sin(t * (3.0 + activity * 2.0) + fi * 2.0) * 0.2) * (1.0 + activity * 0.5);
+                    
+                    float distX = abs(p.x - x);
+                    float distY = max(0.0, p.y - (-0.6));
+                    float flame = (1.0 - distX * (4.0 - activity * 1.0)) * (1.0 - distY / flameHeight);
+                    flame = max(0.0, flame);
+                    flame = pow(flame, 1.5 + activity);
+                    
+                    vec3 flameCol = mix(vec3(1.0, 0.3, 0.0), vec3(1.0, 0.5, 0.1), activity);
+                    color += flameCol * flame * (0.3 + activity * 0.3);
+                    
+                    vec3 innerFlame = mix(vec3(1.0, 0.7, 0.1), vec3(1.0, 0.9, 0.3), activity);
+                    color += innerFlame * flame * 0.15 * smoothstep(0.0, flameHeight * 0.5, p.y + 0.6);
+                }
+
+                // Hot core - glow intensity based on activity
+                float centerDist = length(p);
+                float centerGlow = exp(-centerDist * (2.5 - activity * 0.8));
+                color += mix(vec3(1.0, 0.5, 0.1), vec3(1.0, 0.3, 0.0), activity) * centerGlow * (0.5 + activity * 0.4);
+                color += mix(vec3(1.0, 0.9, 0.3), vec3(1.0, 0.7, 0.1), activity) * centerGlow * centerGlow * (0.3 + activity * 0.3);
+
+                // Sparks - more sparks with higher activity
+                int sparkCount = 8 + int(activity * 12.0);
+                for (int i = 0; i < 15; i++) {
+                    if (i >= sparkCount) break;
+                    float fi = float(i);
+                    vec2 sparkPos = vec2(
+                        sin(fi * 4.5 + t * (4.0 + activity * 3.0)) * (0.4 + activity * 0.2),
+                        cos(fi * 3.2 + t * (3.5 + activity * 2.5)) * (0.3 + activity * 0.1) + sin(t * (2.0 + activity) + fi) * (0.2 + activity * 0.15)
+                    );
+                    float spark = smoothstep(0.015, 0.003, length(p - sparkPos));
+                    vec3 sparkCol = mix(vec3(1.0, 0.8, 0.3), vec3(1.0, 0.6, 0.1), activity);
+                    color += sparkCol * spark * (0.6 + activity * 0.4);
+                }
+
+                // Add flicker based on activity
+                float flicker = sin(t * (10.0 + activity * 10.0)) * 0.5 + 0.5;
+                color *= 0.9 + flicker * 0.1 * activity;
+
+                color = pow(color, vec3(0.85));
+                color = clamp(color, 0.0, 1.0);
+                gl_FragColor = vec4(color, 1.0);
+            }
+        `;
+
+        const vertexShaderSource = `attribute vec2 a_position; void main() { gl_Position = vec4(a_position, 0.0, 1.0); }`;
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return null;
+            return shader;
+        }
+
+        function createProgram(gl, vertexShader, fragmentShader) {
+            const program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
+            return program;
+        }
+
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+        console.log("Vertex shader:", vertexShader ? "OK" : "FAILED");
+        console.log("Fragment shader:", fragmentShader ? "OK" : "FAILED");
+        const program = createProgram(gl, vertexShader, fragmentShader);
+        console.log("Program:", program ? "OK" : "FAILED");
+
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+
+        const posLoc = gl.getAttribLocation(program, "a_position");
+        const resLoc = gl.getUniformLocation(program, "u_resolution");
+        const timeLoc = gl.getUniformLocation(program, "u_time");
+        const a1Loc = gl.getUniformLocation(program, "u_a1");
+        const c3Loc = gl.getUniformLocation(program, "u_c3");
+        const c4Loc = gl.getUniformLocation(program, "u_c4");
+        const a2Loc = gl.getUniformLocation(program, "u_a2");
+
+        function connect() {
+            console.log("Connecting to WebSocket...");
+            statusEl.textContent = "Connecting...";
+            statusEl.className = "";
+            
+            ws = new WebSocket("ws://localhost:8765");
+
+            ws.onopen = () => {
+                console.log("WebSocket connected!");
+                statusEl.textContent = "Connected";
+                statusEl.className = "connected";
+            };
+
+            ws.onclose = (e) => {
+                console.log("WebSocket closed:", e.code, e.reason);
+                statusEl.textContent = "Disconnected";
+                statusEl.className = "disconnected";
+                setTimeout(connect, 2000);
+            };
+
+            ws.onerror = (e) => {
+                console.error("WebSocket error:", e);
+                if (ws.readyState !== WebSocket.OPEN) {
+                    statusEl.textContent = "Connection error";
+                }
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.means) {
+                        targetChannelMeans = data.means;
+                    }
+                } catch(e) {
+                    console.error("Parse error:", e);
+                }
+            };
+        }
+        connect();
+
+        function render() {
+            time += 0.016;
+            channelMeans.A1 += (targetChannelMeans.A1 - channelMeans.A1) * smoothFactor;
+            channelMeans.C3 += (targetChannelMeans.C3 - channelMeans.C3) * smoothFactor;
+            channelMeans.C4 += (targetChannelMeans.C4 - channelMeans.C4) * smoothFactor;
+            channelMeans.A2 += (targetChannelMeans.A2 - channelMeans.A2) * smoothFactor;
+            channelsEl.innerHTML = `A1: ${channelMeans.A1.toFixed(2)}<br>C3: ${channelMeans.C3.toFixed(2)}<br>C4: ${channelMeans.C4.toFixed(2)}<br>A2: ${channelMeans.A2.toFixed(2)}`;
+
+            gl.useProgram(program);
+            gl.enableVertexAttribArray(posLoc);
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+            gl.uniform2f(resLoc, canvas.width, canvas.height);
+            gl.uniform1f(timeLoc, time);
+            gl.uniform1f(a1Loc, channelMeans.A1);
+            gl.uniform1f(c3Loc, channelMeans.C3);
+            gl.uniform1f(c4Loc, channelMeans.C4);
+            gl.uniform1f(a2Loc, channelMeans.A2);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            requestAnimationFrame(render);
+        }
+        render();
+    </script>
+</body>
+</html>
