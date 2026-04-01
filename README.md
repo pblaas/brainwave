@@ -87,6 +87,35 @@ The sensors capture brainwave data from the frontal parietal lobe (involved in s
 - **Theta** (7.83 Hz): Deep relaxation, meditation
 - **Delta** (1-4 Hz): Deep sleep
 
+## Signal Processing
+
+The raw EEG voltage data from the 4 sensors is processed to extract brainwave band powers:
+
+```
+Raw EEG Signal → FFT (Fast Fourier Transform) → Power Spectral Density (PSD) → Band Powers
+```
+
+1. **Raw EEG**: Each channel records voltage fluctuations in microvolts (µV)
+2. **FFT/PSD**: Converts time-domain signal to frequency-domain, showing power at each frequency
+3. **Band Power**: Integrates power within specific frequency ranges for each band
+
+| Band | Frequency Range | How It's Calculated |
+|------|-----------------|---------------------|
+| Delta | 0.5-4 Hz | Sum of PSD from 0.5-4 Hz |
+| Theta | 4-8 Hz | Sum of PSD from 4-8 Hz |
+| Alpha | 8-13 Hz | Sum of PSD from 8-13 Hz |
+| Beta | 13-30 Hz | Sum of PSD from 13-30 Hz |
+| Gamma | 30-50 Hz | Sum of PSD from 30-50 Hz |
+
+### Focus Score
+
+The focus score is derived from the **Beta/Alpha ratio**:
+```
+Focus Score = (Beta Power / Alpha Power) × 100
+```
+
+Higher Beta (active thinking) relative to Alpha (relaxation) indicates better focus. Values are clamped between 0-100.
+
 ## Scripts
 
 | Script | Description |
