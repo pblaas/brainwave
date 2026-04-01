@@ -1,0 +1,9 @@
+brainflow>=5.0.0
+numpy>=1.20.0
+matplotlib>=3.5.0
+websockets>=10.0.0
+asyncio>=3.4.3
+
+# Optional: for BLE support on Linux
+# bluepy
+# bleak
