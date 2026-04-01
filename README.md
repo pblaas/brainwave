@@ -29,7 +29,7 @@ python enophone_websocket_server.py --simulate
 ### Option 2: Real Device
 
 1. Find your Enophone MAC address:
-   - Linux: `bluetoothctl paired-devices`
+   - Linux: `bluetoothctl devices`
    - Windows: Device Manager → Bluetooth Address
 
 2. Start the server with your MAC:
