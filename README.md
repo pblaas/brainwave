@@ -154,7 +154,7 @@ The WebGL art (`enophone-art.html`) displays:
 - **Calm indicator**: Central ripple effect when all channels near ideal range
 - **High spike fireworks**: When values exceed ±1000
 - **Low zone fireworks**: When values are between -25 and 25
-- **Intensity damping**: Values >1250 are reduced by 50% to prevent saturation
+- **Intensity damping**: Values >1000 are reduced by 50% to prevent saturation
 
 ## Troubleshooting
 
