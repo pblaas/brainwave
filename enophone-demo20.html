@@ -3,19 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enophone Brainwave Demo 1</title>
+    <title>Enophone Brainwave Demo 20</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
-            background: #050508; 
+            background: #0a1508; 
             overflow: hidden; 
             font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
         }
-        canvas { 
-            display: block; 
-            width: 100vw; 
-            height: 100vh; 
-        }
+        canvas { display: block; width: 100vw; height: 100vh; }
         #info {
             position: fixed;
             top: 24px;
@@ -67,7 +63,6 @@
         let channelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
         let time = 0;
         const smoothFactor = 0.05;
-        console.log("Enophone Demo 1 initializing...");
 
         function resize() {
             canvas.width = window.innerWidth;
@@ -98,29 +93,12 @@
             float hash(float n) { return fract(sin(n) * 43758.5453); }
             float hash2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 
-            mat2 rot(float a) {
-                float c = cos(a), s = sin(a);
-                return mat2(c, -s, s, c);
-            }
-
             float noise(vec2 p) {
                 vec2 i = floor(p);
                 vec2 f = fract(p);
                 f = f * f * (3.0 - 2.0 * f);
                 return mix(mix(hash2(i), hash2(i + vec2(1.0, 0.0)), f.x),
                            mix(hash2(i + vec2(0.0, 1.0)), hash2(i + vec2(1.0, 1.0)), f.x), f.y);
-            }
-
-            float fbm(vec2 p) {
-                float v = 0.0;
-                float a = 0.5;
-                vec2 shift = vec2(100.0);
-                for (int i = 0; i < 5; i++) {
-                    v += a * noise(p);
-                    p = p * 2.0 + shift;
-                    a *= 0.5;
-                }
-                return v;
             }
 
             void main() {
@@ -136,109 +114,114 @@
                 float activity = (abs(a1) + abs(c3) + abs(c4) + abs(a2)) / 4.0;
                 float calm = 1.0 - clamp(activity * 2.0, 0.0, 1.0);
 
-                float t = u_time * 0.5;
+                float t = u_time * 0.35;
+                vec3 color = vec3(0.02, 0.05, 0.02);
                 
-                vec3 color = vec3(0.0);
+                float animSpeed = 0.2 + activity * 1.5;
 
-                // Particle field
-                for (int i = 0; i < 60; i++) {
+                // Ground gradient
+                float ground = smoothstep(-0.7, -1.0, p.y);
+                color = mix(vec3(0.02, 0.08, 0.03), vec3(0.0, 0.04, 0.01), ground);
+
+                // Grass blades - sway faster with activity
+                for (float i = 0.0; i < 40.0; i++) {
+                    float bladeX = -1.5 + i * 0.08 + hash(i) * 0.04;
+                    float bladeHeight = 0.1 + hash(i + 10.0) * 0.15 + activity * 0.1;
+                    float sway = sin(t * animSpeed * 2.0 + i) * (0.02 + activity * 0.03);
+                    
+                    vec2 bladePos = vec2(bladeX + sway, -0.95);
+                    float bladeDist = abs(p.x - bladePos.x);
+                    float blade = smoothstep(0.01, 0.0, bladeDist) * smoothstep(-0.95, -0.95 + bladeHeight, p.y);
+                    
+                    vec3 bladeCol = mix(vec3(0.0, 0.2, 0.05), vec3(0.1, 0.35, 0.1), hash(i + 5.0));
+                    color += bladeCol * blade * (0.4 + activity * 0.5);
+                }
+
+                // Flowers - vibrancy and size based on activity
+                for (float i = 0.0; i < 8.0; i++) {
+                    float flowerX = -1.2 + i * 0.35 + hash(i * 2.0) * 0.1;
+                    float flowerY = -0.9 + hash(i * 3.0) * 0.1;
+                    float petalSize = 0.03 + activity * 0.025;
+                    
+                    // Stem
+                    float stemDist = length(p - vec2(flowerX, flowerY - 0.1));
+                    float stem = smoothstep(0.008, 0.0, stemDist);
+                    color += vec3(0.0, 0.25, 0.08) * stem * 0.5;
+                    
+                    // Petals
+                    for (float p = 0.0; p < 6.0; p++) {
+                        float angle = p * 1.047 + t * animSpeed * 0.5;
+                        vec2 petalPos = vec2(flowerX, flowerY) + vec2(cos(angle), sin(angle)) * petalSize;
+                        float petal = smoothstep(petalSize * 0.7, petalSize * 0.3, length(p - petalPos));
+                        
+                        vec3 petalCol;
+                        if (mod(i, 3.0) < 1.0) petalCol = vec3(1.0, 0.3, 0.4);
+                        else if (mod(i, 3.0) < 2.0) petalCol = vec3(1.0, 0.8, 0.2);
+                        else petalCol = vec3(0.8, 0.4, 1.0);
+                        
+                        // Add channel-based color shift
+                        petalCol.r += abs(a1) * 0.5;
+                        petalCol.g += abs(c3) * 0.5;
+                        petalCol.b += abs(c4) * 0.5;
+                        
+                        color += petalCol * petal * (0.5 + activity * 0.5);
+                    }
+                    
+                    // Center
+                    float center = smoothstep(0.015, 0.01, length(p - vec2(flowerX, flowerY)));
+                    color += vec3(1.0, 0.9, 0.3) * center * (0.6 + activity * 0.4);
+                }
+
+                // Fireflies - more numerous and brighter with activity
+                int fireflyCount = 8 + int(activity * 12.0);
+                for (int i = 0; i < 20; i++) {
+                    if (i >= fireflyCount) break;
                     float fi = float(i);
-                    float seed = fi * 0.1;
-                    vec2 pos = vec2(
-                        sin(seed * 12.34 + t * 0.3) * (0.8 + a1 * 0.3),
-                        cos(seed * 56.78 + t * 0.25) * (0.6 + c3 * 0.2)
+                    vec2 flyPos = vec2(
+                        sin(fi * 1.3 + t * animSpeed * 0.5) * 1.2,
+                        -0.7 + sin(fi * 0.8 + t * animSpeed * 0.3) * 0.4
+                    );
+                    float flyDist = length(p - flyPos);
+                    float glow = exp(-flyDist * 15.0);
+                    float pulse = sin(t * 4.0 + fi * 2.0) * 0.5 + 0.5;
+                    float brightness = 0.3 + activity * 0.7;
+                    color += vec3(0.8, 1.0, 0.3) * glow * pulse * brightness;
+                }
+
+                // Butterflies - faster with activity
+                for (float i = 0.0; i < 3.0; i++) {
+                    vec2 butterPos = vec2(
+                        sin(i * 3.0 + t * animSpeed * 0.4) * 0.8,
+                        0.2 + sin(i * 2.0 + t * animSpeed * 0.3) * 0.5
                     );
                     
-                    float size = 0.008 + hash(seed) * 0.012;
-                    float dist = length(p - pos);
-                    float particle = smoothstep(size, size * 0.3, dist);
+                    // Wings
+                    float wingPhase = sin(t * animSpeed * 8.0 + i) * 0.5 + 0.5;
+                    vec2 leftWing = vec2(-0.05 - wingPhase * 0.03, 0.0);
+                    vec2 rightWing = vec2(0.05 + wingPhase * 0.03, 0.0);
                     
-                    vec3 particleCol = mix(
-                        vec3(0.1, 0.8, 0.9),
-                        vec3(0.9, 0.3, 0.8),
-                        hash(seed + 1.0)
-                    );
-                    particleCol = mix(particleCol, vec3(1.0), 0.3);
+                    float leftDist = length(p - butterPos - leftWing);
+                    float rightDist = length(p - butterPos - rightWing);
+                    float wings = smoothstep(0.04, 0.02, leftDist) + smoothstep(0.04, 0.02, rightDist);
                     
-                    float alpha = particle * (0.4 + calm * 0.3);
-                    color += particleCol * alpha;
+                    vec3 wingCol = mod(i, 3.0) < 1.0 ? vec3(1.0, 0.5, 0.2) : (mod(i, 3.0) < 2.0 ? vec3(0.3, 0.6, 1.0) : vec3(1.0, 0.3, 0.8));
+                    wingCol.r += abs(a1) * 0.3;
+                    wingCol.g += abs(c3) * 0.3;
+                    wingCol.b += abs(c4) * 0.3;
+                    color += wingCol * wings * (0.5 + activity * 0.5);
                 }
 
-                // Concentric rings
-                float ringCount = 5.0 + activity * 3.0;
-                for (float i = 0.0; i < 6.0; i++) {
-                    float radius = 0.15 + i * 0.18;
-                    float ring = abs(length(p) - radius);
-                    float ringWidth = 0.008 + c4 * 0.004;
-                    float ringAlpha = smoothstep(ringWidth, 0.0, ring);
-                    ringAlpha *= 0.3 - i * 0.04;
-                    
-                    vec3 ringCol = vec3(0.15, 0.12, 0.25);
-                    ringCol = mix(ringCol, vec3(0.0, 0.9, 0.7), sin(i * 1.5 + t) * 0.5 + 0.5);
-                    
-                    color += ringCol * ringAlpha * (0.5 + calm * 0.5);
-                }
-
-                // Orbiting dots
-                for (int i = 0; i < 8; i++) {
-                    float fi = float(i);
-                    float angle = fi * PI * 0.25 + t * (0.5 + a2 * 0.5);
-                    float radius = 0.4 + a1 * 0.15;
-                    vec2 orbPos = vec2(cos(angle), sin(angle)) * radius;
-                    
-                    float dist = length(p - orbPos);
-                    float dot = smoothstep(0.025, 0.01, dist);
-                    
-                    vec3 dotCol = vec3(0.0);
-                    if (i < 2) dotCol = vec3(1.0, 0.4, 0.2);
-                    else if (i < 4) dotCol = vec3(0.2, 0.8, 1.0);
-                    else if (i < 6) dotCol = vec3(0.6, 0.3, 1.0);
-                    else dotCol = vec3(0.3, 1.0, 0.5);
-                    
-                    color += dotCol * dot * 0.8;
-                }
-
-                // Flowing lines
-                for (float i = 0.0; i < 4.0; i++) {
-                    float offset = i * 0.5;
-                    vec2 lineP = p;
-                    lineP.y += sin(lineP.x * 3.0 + t + offset + a1) * 0.15;
-                    lineP.x += cos(lineP.y * 2.0 + t * 0.7 + offset) * 0.1;
-                    
-                    float line = abs(sin(lineP.x * 8.0 + lineP.y * 4.0 + t));
-                    line = pow(line, 20.0);
-                    
-                    vec3 lineCol = mix(
-                        vec3(0.0, 0.7, 0.8),
-                        vec3(0.8, 0.2, 0.6),
-                        i / 4.0
-                    );
-                    
-                    color += lineCol * line * 0.15 * (1.0 - calm * 0.5);
-                }
-
-                // Center glow
-                float centerDist = length(p);
-                float glow = exp(-centerDist * 2.5);
-                vec3 glowCol = mix(
-                    vec3(0.05, 0.02, 0.15),
-                    vec3(0.0, 0.5, 0.4),
-                    calm
-                );
-                color += glowCol * glow * 0.4;
+                // Sun rays
+                vec2 sunPos = vec2(0.7, 0.7);
+                float sunDist = length(p - sunPos);
+                float sunGlow = exp(-sunDist * 2.0) * 0.3;
+                color += vec3(0.3, 0.25, 0.1) * sunGlow;
 
                 // Vignette
-                float vignette = 1.0 - smoothstep(0.5, 1.5, centerDist);
+                float vignette = 1.0 - smoothstep(0.5, 1.3, length(p));
                 color *= vignette;
 
-                // Subtle noise
-                float n = fbm(p * 2.0 + t * 0.2);
-                color += vec3(0.02) * n;
-
-                // Tone mapping
-                color = pow(color, vec3(0.9));
                 color = clamp(color, 0.0, 1.0);
-
                 gl_FragColor = vec4(color, 1.0);
             }
         `;
@@ -332,7 +315,6 @@
                     const data = JSON.parse(event.data);
                     if (data.means) {
                         targetChannelMeans = data.means;
-                        console.log("Received means:", targetChannelMeans);
                     }
                 } catch(e) {
                     console.error("Parse error:", e);
@@ -344,36 +326,26 @@
 
         function render() {
             time += 0.016;
-
             channelMeans.A1 += (targetChannelMeans.A1 - channelMeans.A1) * smoothFactor;
             channelMeans.C3 += (targetChannelMeans.C3 - channelMeans.C3) * smoothFactor;
             channelMeans.C4 += (targetChannelMeans.C4 - channelMeans.C4) * smoothFactor;
             channelMeans.A2 += (targetChannelMeans.A2 - channelMeans.A2) * smoothFactor;
 
-            channelsEl.innerHTML = 
-                `A1: ${channelMeans.A1.toFixed(2)}<br>` +
-                `C3: ${channelMeans.C3.toFixed(2)}<br>` +
-                `C4: ${channelMeans.C4.toFixed(2)}<br>` +
-                `A2: ${channelMeans.A2.toFixed(2)}`;
+            channelsEl.innerHTML = `A1: ${channelMeans.A1.toFixed(2)}<br>C3: ${channelMeans.C3.toFixed(2)}<br>C4: ${channelMeans.C4.toFixed(2)}<br>A2: ${channelMeans.A2.toFixed(2)}`;
 
             gl.useProgram(program);
-
             gl.enableVertexAttribArray(positionLocation);
             gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
             gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-
             gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
             gl.uniform1f(timeLocation, time);
             gl.uniform1f(a1Location, channelMeans.A1);
             gl.uniform1f(c3Location, channelMeans.C3);
             gl.uniform1f(c4Location, channelMeans.C4);
             gl.uniform1f(a2Location, channelMeans.A2);
-
             gl.drawArrays(gl.TRIANGLES, 0, 6);
-
             requestAnimationFrame(render);
         }
-
         render();
     </script>
 </body>
