@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enophone Brainwave Demo 26</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #0a0a10; 
+            overflow: hidden; 
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #info {
+            position: fixed;
+            top: 24px;
+            left: 24px;
+            color: rgba(255,255,255,0.6);
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            z-index: 10;
+            pointer-events: none;
+            text-transform: uppercase;
+        }
+        #channels {
+            margin-top: 8px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 10px;
+            color: rgba(255,255,255,0.4);
+        }
+        #status {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            z-index: 10;
+            pointer-events: none;
+            text-transform: uppercase;
+        }
+        .connected { color: #00ffaa !important; }
+        .disconnected { color: #ff4466 !important; }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <div>Neural Grid Matrix</div>
+        <div id="channels"></div>
+    </div>
+    <div id="status">Connecting...</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const channelsEl = document.getElementById('channels');
+        const statusEl = document.getElementById('status');
+
+        let ws = null;
+        let targetChannelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let channelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let time = 0;
+        const smoothFactor = 0.05;
+
+        const gridSize = 40;
+        const cellSize = 20;
+        let grid = [];
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            const cols = Math.ceil(canvas.width / cellSize);
+            const rows = Math.ceil(canvas.height / cellSize);
+            grid = [];
+            
+            for (let y = 0; y < rows; y++) {
+                grid[y] = [];
+                for (let x = 0; x < cols; x++) {
+                    grid[y][x] = {
+                        baseX: x * cellSize,
+                        baseY: y * cellSize,
+                        offset: 0,
+                        velocity: 0
+                    };
+                }
+            }
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 10;
+        const baseReconnectDelay = 1000;
+
+        function connect() {
+            statusEl.textContent = "Connecting...";
+            statusEl.className = "";
+            ws = new WebSocket("ws://localhost:8765");
+
+            ws.onopen = () => {
+                statusEl.textContent = "Connected";
+                statusEl.className = "connected";
+                reconnectAttempts = 0;
+            };
+
+            ws.onclose = (e) => {
+                statusEl.textContent = "Disconnected";
+                statusEl.className = "disconnected";
+                reconnectAttempts++;
+                if (reconnectAttempts <= maxReconnectAttempts) {
+                    const delay = Math.min(baseReconnectDelay * Math.pow(1.5, reconnectAttempts - 1), 30000);
+                    statusEl.textContent = `Reconnecting (${reconnectAttempts})...`;
+                    setTimeout(connect, delay);
+                } else {
+                    statusEl.textContent = "Connection failed - refresh to retry";
+                }
+            };
+
+            ws.onerror = (e) => {
+                statusEl.textContent = "Connection error";
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.means) targetChannelMeans = data.means;
+                } catch(e) {}
+            };
+        }
+
+        connect();
+
+        function render() {
+            time += 0.016;
+            channelMeans.A1 += (targetChannelMeans.A1 - channelMeans.A1) * smoothFactor;
+            channelMeans.C3 += (targetChannelMeans.C3 - channelMeans.C3) * smoothFactor;
+            channelMeans.C4 += (targetChannelMeans.C4 - channelMeans.C4) * smoothFactor;
+            channelMeans.A2 += (targetChannelMeans.A2 - channelMeans.A2) * smoothFactor;
+
+            ctx.fillStyle = 'rgba(10, 10, 16, 0.15)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const activity = (Math.abs(channelMeans.A1) + Math.abs(channelMeans.C3) + Math.abs(channelMeans.C4) + Math.abs(channelMeans.A2)) / 400;
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+
+            const colors = {
+                A1: '#00ffaa',
+                C3: '#40b4ff',
+                C4: '#b464ff',
+                A2: '#64ffc8'
+            };
+
+            for (let y = 0; y < grid.length; y++) {
+                for (let x = 0; x < grid[y].length; x++) {
+                    const cell = grid[y][x];
+                    const dx = cell.baseX - cx;
+                    const dy = cell.baseY - cy;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    const angle = Math.atan2(dy, dx);
+                    const wave = Math.sin(dist * 0.02 - time * 3) * 15;
+                    const channelWave = Math.sin(time * 2 + x * 0.1 + y * 0.1);
+                    
+                    cell.velocity += (wave + channelWave * activity * 30 - cell.offset * 0.1) * 0.05;
+                    cell.velocity *= 0.9;
+                    cell.offset += cell.velocity;
+                    
+                    const size = cellSize * 0.6 + Math.abs(cell.offset) * 0.3 + activity * 5;
+                    const alpha = Math.min(0.8, 0.2 + Math.abs(cell.offset) * 0.02 + activity * 0.5);
+                    
+                    ctx.fillStyle = `rgba(100, 150, 255, ${alpha})`;
+                    ctx.fillRect(
+                        cell.baseX + cell.offset - size/2, 
+                        cell.baseY + cell.offset - size/2, 
+                        size, size
+                    );
+
+                    if (Math.abs(cell.offset) > 10) {
+                        ctx.strokeStyle = `rgba(100, 200, 255, ${alpha * 0.5})`;
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(
+                            cell.baseX + cell.offset - size/2, 
+                            cell.baseY + cell.offset - size/2, 
+                            size, size
+                        );
+                    }
+                }
+            }
+
+            channelsEl.innerHTML = `A1: ${channelMeans.A1.toFixed(2)}<br>C3: ${channelMeans.C3.toFixed(2)}<br>C4: ${channelMeans.C4.toFixed(2)}<br>A2: ${channelMeans.A2.toFixed(2)}`;
+
+            requestAnimationFrame(render);
+        }
+        render();
+    </script>
+</body>
+</html>

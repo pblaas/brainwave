@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enophone Brainwave Demo 23</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #020408; 
+            overflow: hidden; 
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #info {
+            position: fixed;
+            top: 24px;
+            left: 24px;
+            color: rgba(255,255,255,0.6);
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            z-index: 10;
+            pointer-events: none;
+            text-transform: uppercase;
+        }
+        #channels {
+            margin-top: 8px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 10px;
+            color: rgba(255,255,255,0.4);
+        }
+        #status {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            z-index: 10;
+            pointer-events: none;
+            text-transform: uppercase;
+        }
+        .connected { color: #00ffaa !important; }
+        .disconnected { color: #ff4466 !important; }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <div>Neural Particle Flow</div>
+        <div id="channels"></div>
+    </div>
+    <div id="status">Connecting...</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const channelsEl = document.getElementById('channels');
+        const statusEl = document.getElementById('status');
+
+        let ws = null;
+        let targetChannelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let channelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let time = 0;
+        const smoothFactor = 0.05;
+
+        const particles = [];
+        const numParticles = 150;
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.size = Math.random() * 3 + 1;
+                this.baseSize = this.size;
+                this.life = 1;
+                this.decay = Math.random() * 0.005 + 0.002;
+                this.channel = ['A1', 'C3', 'C4', 'A2'][Math.floor(Math.random() * 4)];
+            }
+            update(activity) {
+                const channelVal = Math.abs(channelMeans[this.channel] || 0);
+                const speedMult = 1 + channelVal * 0.5 + activity * 2;
+                
+                this.x += this.vx * speedMult;
+                this.y += this.vy * speedMult;
+                
+                this.size = this.baseSize * (1 + channelVal * 0.3 + activity * 0.5);
+                this.life -= this.decay;
+                
+                if (this.life <= 0 || this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
+                    this.reset();
+                }
+            }
+            draw(activity) {
+                const channelVal = Math.abs(channelMeans[this.channel] || 0);
+                const colors = {
+                    A1: `rgba(0, 255, 170, ${this.life * 0.8})`,
+                    C3: `rgba(64, 180, 255, ${this.life * 0.8})`,
+                    C4: `rgba(180, 100, 255, ${this.life * 0.8})`,
+                    A2: `rgba(100, 255, 200, ${this.life * 0.8})`
+                };
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size + activity * 2, 0, Math.PI * 2);
+                ctx.fillStyle = colors[this.channel];
+                ctx.fill();
+                
+                if (activity > 0.3) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size * 2 + activity * 3, 0, Math.PI * 2);
+                    ctx.strokeStyle = colors[this.channel].replace('0.8', '0.2');
+                    ctx.stroke();
+                }
+            }
+        }
+
+        for (let i = 0; i < numParticles; i++) {
+            particles.push(new Particle());
+        }
+
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 10;
+        const baseReconnectDelay = 1000;
+
+        function connect() {
+            console.log("Connecting to WebSocket...");
+            statusEl.textContent = "Connecting...";
+            statusEl.className = "";
+            
+            ws = new WebSocket("ws://localhost:8765");
+
+            ws.onopen = () => {
+                console.log("WebSocket connected!");
+                statusEl.textContent = "Connected";
+                statusEl.className = "connected";
+                reconnectAttempts = 0;
+            };
+
+            ws.onclose = (e) => {
+                console.log("WebSocket closed:", e.code, e.reason);
+                statusEl.textContent = "Disconnected";
+                statusEl.className = "disconnected";
+                
+                reconnectAttempts++;
+                if (reconnectAttempts <= maxReconnectAttempts) {
+                    const delay = Math.min(baseReconnectDelay * Math.pow(1.5, reconnectAttempts - 1), 30000);
+                    console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+                    statusEl.textContent = `Reconnecting (${reconnectAttempts})...`;
+                    setTimeout(connect, delay);
+                } else {
+                    statusEl.textContent = "Connection failed - refresh to retry";
+                }
+            };
+
+            ws.onerror = (e) => {
+                console.error("WebSocket error:", e);
+                if (ws.readyState !== WebSocket.OPEN) {
+                    statusEl.textContent = "Connection error";
+                }
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.means) {
+                        targetChannelMeans = data.means;
+                    }
+                } catch(e) {
+                    console.error("Parse error:", e);
+                }
+            };
+        }
+
+        connect();
+
+        function render() {
+            time += 0.016;
+            channelMeans.A1 += (targetChannelMeans.A1 - channelMeans.A1) * smoothFactor;
+            channelMeans.C3 += (targetChannelMeans.C3 - channelMeans.C3) * smoothFactor;
+            channelMeans.C4 += (targetChannelMeans.C4 - channelMeans.C4) * smoothFactor;
+            channelMeans.A2 += (targetChannelMeans.A2 - channelMeans.A2) * smoothFactor;
+
+            const activity = (Math.abs(channelMeans.A1) + Math.abs(channelMeans.C3) + Math.abs(channelMeans.C4) + Math.abs(channelMeans.A2)) / 400;
+            
+            ctx.fillStyle = 'rgba(2, 4, 8, 0.15)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            particles.forEach(p => {
+                p.update(activity);
+                p.draw(activity);
+            });
+
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 80) {
+                        const alpha = (1 - dist / 80) * 0.15 * activity;
+                        ctx.beginPath();
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.strokeStyle = `rgba(100, 200, 255, ${alpha})`;
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            channelsEl.innerHTML = `A1: ${channelMeans.A1.toFixed(2)}<br>C3: ${channelMeans.C3.toFixed(2)}<br>C4: ${channelMeans.C4.toFixed(2)}<br>A2: ${channelMeans.A2.toFixed(2)}`;
+
+            requestAnimationFrame(render);
+        }
+        render();
+    </script>
+</body>
+</html>

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enophone Brainwave Demo 28</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #020206; 
+            overflow: hidden; 
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #info {
+            position: fixed;
+            top: 24px;
+            left: 24px;
+            color: rgba(255,255,255,0.6);
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            z-index: 10;
+            pointer-events: none;
+            text-transform: uppercase;
+        }
+        #channels {
+            margin-top: 8px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 10px;
+            color: rgba(255,255,255,0.4);
+        }
+        #status {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            z-index: 10;
+            pointer-events: none;
+            text-transform: uppercase;
+        }
+        .connected { color: #00ffaa !important; }
+        .disconnected { color: #ff4466 !important; }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <div>Neural Meteorites</div>
+        <div id="channels"></div>
+    </div>
+    <div id="status">Connecting...</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const channelsEl = document.getElementById('channels');
+        const statusEl = document.getElementById('status');
+
+        let ws = null;
+        let targetChannelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let channelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let time = 0;
+        const smoothFactor = 0.05;
+
+        const meteorites = [];
+        const stars = [];
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        class Meteorite {
+            constructor() {
+                this.reset();
+            }
+            reset() {
+                const angle = Math.random() * Math.PI * 2;
+                const startDist = Math.max(canvas.width, canvas.height);
+                this.x = canvas.width / 2 + Math.cos(angle) * startDist * 0.5;
+                this.y = canvas.height / 2 + Math.sin(angle) * startDist * 0.5;
+                this.z = startDist;
+                this.speed = (3 + Math.random() * 5) * 0.4;
+                this.size = 2 + Math.random() * 4;
+                this.trail = [];
+                this.maxTrail = 20 + Math.floor(Math.random() * 20);
+                this.channel = ['A1', 'C3', 'C4', 'A2'][Math.floor(Math.random() * 4)];
+                this.active = true;
+            }
+            update(activity) {
+                const channelVal = Math.abs(channelMeans[this.channel] || 0);
+                const speedMult = 1 + channelVal * 0.3 + activity * 0.5;
+                
+                this.z -= this.speed * speedMult;
+                
+                const perspective = 1000 / (this.z + 100);
+                const cx = canvas.width / 2;
+                const cy = canvas.height / 2;
+                
+                const dx = (this.x - cx) * perspective;
+                const dy = (this.y - cy) * perspective;
+                
+                this.trail.unshift({ x: cx + dx, y: cy + dy, z: this.z });
+                if (this.trail.length > this.maxTrail) this.trail.pop();
+                
+                if (this.z <= 0) this.reset();
+            }
+            draw(activity) {
+                const channelVal = Math.abs(channelMeans[this.channel] || 0);
+                const perspective = 1000 / (this.z + 100);
+                const cx = canvas.width / 2;
+                const cy = canvas.height / 2;
+                
+                const dx = (this.x - cx) * perspective;
+                const dy = (this.y - cy) * perspective;
+                const screenX = cx + dx;
+                const screenY = cy + dy;
+                
+                const size = this.size * perspective * (1 + channelVal * 0.2 + activity * 0.3);
+                
+                const colors = {
+                    A1: { main: '#00ffaa', tail: 'rgba(0, 255, 170,' },
+                    C3: { main: '#40b4ff', tail: 'rgba(64, 180, 255,' },
+                    C4: { main: '#b464ff', tail: 'rgba(180, 100, 255,' },
+                    A2: { main: '#64ffc8', tail: 'rgba(100, 255, 200,' }
+                };
+                
+                for (let i = 1; i < this.trail.length; i++) {
+                    const t = this.trail[i];
+                    const tPrev = this.trail[i - 1];
+                    const tPerspective = 1000 / (t.z + 100);
+                    const tDx = (t.x - cx) * tPerspective;
+                    const tDy = (t.y - cy) * tPerspective;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(cx + (tPrev.x - cx) * ((1000 / (tPrev.z + 100))), cy + (tPrev.y - cy) * ((1000 / (tPrev.z + 100))));
+                    ctx.lineTo(cx + tDx, cy + tDy);
+                    
+                    const alpha = (1 - i / this.trail.length) * 0.8 * 0.4;
+                    ctx.strokeStyle = colors[this.channel].tail + alpha + ')';
+                    ctx.lineWidth = size * (1 - i / this.trail.length) * 0.8;
+                    ctx.stroke();
+                }
+                
+                const gradient = ctx.createRadialGradient(screenX, screenY, 0, screenX, screenY, size * 2);
+                gradient.addColorStop(0, colors[this.channel].main);
+                gradient.addColorStop(0.5, colors[this.channel].main.replace(')', ', 0.5)'));
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, size * 2, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.fill();
+            }
+        }
+
+        class Star {
+            constructor() {
+                this.reset();
+            }
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.z = 500 + Math.random() * 500;
+                this.size = 0.5 + Math.random() * 1.5;
+            }
+            update() {
+                this.z -= 0.5 * 0.4;
+                if (this.z <= 0) this.reset();
+            }
+            draw() {
+                const perspective = 500 / (this.z + 50);
+                const size = this.size * perspective;
+                const alpha = Math.min(1, perspective * 0.8) * 0.4;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.fill();
+            }
+        }
+
+        for (let i = 0; i < 8; i++) {
+            meteorites.push(new Meteorite());
+        }
+        for (let i = 0; i < 100; i++) {
+            stars.push(new Star());
+        }
+
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 10;
+        const baseReconnectDelay = 1000;
+
+        function connect() {
+            statusEl.textContent = "Connecting...";
+            statusEl.className = "";
+            ws = new WebSocket("ws://localhost:8765");
+
+            ws.onopen = () => {
+                statusEl.textContent = "Connected";
+                statusEl.className = "connected";
+                reconnectAttempts = 0;
+            };
+
+            ws.onclose = (e) => {
+                statusEl.textContent = "Disconnected";
+                statusEl.className = "disconnected";
+                reconnectAttempts++;
+                if (reconnectAttempts <= maxReconnectAttempts) {
+                    const delay = Math.min(baseReconnectDelay * Math.pow(1.5, reconnectAttempts - 1), 30000);
+                    statusEl.textContent = `Reconnecting (${reconnectAttempts})...`;
+                    setTimeout(connect, delay);
+                } else {
+                    statusEl.textContent = "Connection failed - refresh to retry";
+                }
+            };
+
+            ws.onerror = (e) => {
+                statusEl.textContent = "Connection error";
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.means) targetChannelMeans = data.means;
+                } catch(e) {}
+            };
+        }
+
+        connect();
+
+        function render() {
+            time += 0.016 * 0.4;
+            channelMeans.A1 += (targetChannelMeans.A1 - channelMeans.A1) * smoothFactor;
+            channelMeans.C3 += (targetChannelMeans.C3 - channelMeans.C3) * smoothFactor;
+            channelMeans.C4 += (targetChannelMeans.C4 - channelMeans.C4) * smoothFactor;
+            channelMeans.A2 += (targetChannelMeans.A2 - channelMeans.A2) * smoothFactor;
+
+            ctx.fillStyle = 'rgba(2, 2, 6, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const activity = (Math.abs(channelMeans.A1) + Math.abs(channelMeans.C3) + Math.abs(channelMeans.C4) + Math.abs(channelMeans.A2)) / 400;
+
+            stars.forEach(s => {
+                s.update();
+                s.draw();
+            });
+
+            ctx.globalAlpha = 0.4;
+            meteorites.forEach(m => {
+                m.update(activity);
+                m.draw(activity);
+            });
+            ctx.globalAlpha = 1.0;
+
+            channelsEl.innerHTML = `A1: ${channelMeans.A1.toFixed(2)}<br>C3: ${channelMeans.C3.toFixed(2)}<br>C4: ${channelMeans.C4.toFixed(2)}<br>A2: ${channelMeans.A2.toFixed(2)}`;
+
+            requestAnimationFrame(render);
+        }
+        render();
+    </script>
+</body>
+</html>

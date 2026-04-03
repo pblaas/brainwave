@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enophone Brainwave Demo 25</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #030306; 
+            overflow: hidden; 
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #info {
+            position: fixed;
+            top: 24px;
+            left: 24px;
+            color: rgba(255,255,255,0.6);
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            z-index: 10;
+            pointer-events: none;
+            text-transform: uppercase;
+        }
+        #channels {
+            margin-top: 8px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 10px;
+            color: rgba(255,255,255,0.4);
+        }
+        #status {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            z-index: 10;
+            pointer-events: none;
+            text-transform: uppercase;
+        }
+        .connected { color: #00ffaa !important; }
+        .disconnected { color: #ff4466 !important; }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <div>Neural Wave River</div>
+        <div id="channels"></div>
+    </div>
+    <div id="status">Connecting...</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const channelsEl = document.getElementById('channels');
+        const statusEl = document.getElementById('status');
+
+        let ws = null;
+        let targetChannelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let channelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let time = 0;
+        const smoothFactor = 0.05;
+        
+        const waveHistory = [];
+        const historyLength = 200;
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 10;
+        const baseReconnectDelay = 1000;
+
+        function connect() {
+            statusEl.textContent = "Connecting...";
+            statusEl.className = "";
+            ws = new WebSocket("ws://localhost:8765");
+
+            ws.onopen = () => {
+                statusEl.textContent = "Connected";
+                statusEl.className = "connected";
+                reconnectAttempts = 0;
+            };
+
+            ws.onclose = (e) => {
+                statusEl.textContent = "Disconnected";
+                statusEl.className = "disconnected";
+                reconnectAttempts++;
+                if (reconnectAttempts <= maxReconnectAttempts) {
+                    const delay = Math.min(baseReconnectDelay * Math.pow(1.5, reconnectAttempts - 1), 30000);
+                    statusEl.textContent = `Reconnecting (${reconnectAttempts})...`;
+                    setTimeout(connect, delay);
+                } else {
+                    statusEl.textContent = "Connection failed - refresh to retry";
+                }
+            };
+
+            ws.onerror = (e) => {
+                statusEl.textContent = "Connection error";
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.means) targetChannelMeans = data.means;
+                } catch(e) {}
+            };
+        }
+
+        connect();
+
+        function render() {
+            time += 0.016;
+            channelMeans.A1 += (targetChannelMeans.A1 - channelMeans.A1) * smoothFactor;
+            channelMeans.C3 += (targetChannelMeans.C3 - channelMeans.C3) * smoothFactor;
+            channelMeans.C4 += (targetChannelMeans.C4 - channelMeans.C4) * smoothFactor;
+            channelMeans.A2 += (targetChannelMeans.A2 - channelMeans.A2) * smoothFactor;
+
+            const dataPoint = {
+                A1: channelMeans.A1,
+                C3: channelMeans.C3,
+                C4: channelMeans.C4,
+                A2: channelMeans.A2
+            };
+            waveHistory.push(dataPoint);
+            if (waveHistory.length > historyLength) waveHistory.shift();
+
+            ctx.fillStyle = 'rgba(3, 3, 6, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const colors = {
+                A1: { main: '#00ffaa', fill: 'rgba(0, 255, 170, 0.15)' },
+                C3: { main: '#40b4ff', fill: 'rgba(64, 180, 255, 0.15)' },
+                C4: { main: '#b464ff', fill: 'rgba(180, 100, 255, 0.15)' },
+                A2: { main: '#64ffc8', fill: 'rgba(100, 255, 200, 0.15)' }
+            };
+
+            const channelKeys = ['A1', 'C3', 'C4', 'A2'];
+            const baseHeight = canvas.height * 0.7;
+            const waveSpacing = canvas.height / 5;
+
+            channelKeys.forEach((ch, idx) => {
+                const yOffset = waveSpacing * (idx + 1);
+                
+                ctx.beginPath();
+                ctx.moveTo(0, yOffset);
+                
+                for (let i = 0; i < waveHistory.length; i++) {
+                    const x = (i / historyLength) * canvas.width;
+                    const val = waveHistory[i][ch] || 0;
+                    const waveY = yOffset + val * 0.5;
+                    
+                    if (i === 0) ctx.moveTo(x, waveY);
+                    else ctx.lineTo(x, waveY);
+                }
+                
+                ctx.lineTo(canvas.width, yOffset);
+                ctx.lineTo(0, yOffset);
+                ctx.closePath();
+                ctx.fillStyle = colors[ch].fill;
+                ctx.fill();
+                
+                ctx.beginPath();
+                for (let i = 0; i < waveHistory.length; i++) {
+                    const x = (i / historyLength) * canvas.width;
+                    const val = waveHistory[i][ch] || 0;
+                    const waveY = yOffset + val * 0.5;
+                    
+                    if (i === 0) ctx.moveTo(x, waveY);
+                    else ctx.lineTo(x, waveY);
+                }
+                ctx.strokeStyle = colors[ch].main;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+
+            channelsEl.innerHTML = `A1: ${channelMeans.A1.toFixed(2)}<br>C3: ${channelMeans.C3.toFixed(2)}<br>C4: ${channelMeans.C4.toFixed(2)}<br>A2: ${channelMeans.A2.toFixed(2)}`;
+
+            requestAnimationFrame(render);
+        }
+        render();
+    </script>
+</body>
+</html>

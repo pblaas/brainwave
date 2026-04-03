@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enophone Brainwave Demo 24</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #050508; 
+            overflow: hidden; 
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #info {
+            position: fixed;
+            top: 24px;
+            left: 24px;
+            color: rgba(255,255,255,0.6);
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            z-index: 10;
+            pointer-events: none;
+            text-transform: uppercase;
+        }
+        #channels {
+            margin-top: 8px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 10px;
+            color: rgba(255,255,255,0.4);
+        }
+        #status {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            z-index: 10;
+            pointer-events: none;
+            text-transform: uppercase;
+        }
+        .connected { color: #00ffaa !important; }
+        .disconnected { color: #ff4466 !important; }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <div>Frequency Spectrum Rings</div>
+        <div id="channels"></div>
+    </div>
+    <div id="status">Connecting...</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const channelsEl = document.getElementById('channels');
+        const statusEl = document.getElementById('status');
+
+        let ws = null;
+        let targetChannelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let channelMeans = { A1: 0, C3: 0, C4: 0, A2: 0 };
+        let time = 0;
+        const smoothFactor = 0.05;
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 10;
+        const baseReconnectDelay = 1000;
+
+        function connect() {
+            statusEl.textContent = "Connecting...";
+            statusEl.className = "";
+            ws = new WebSocket("ws://localhost:8765");
+
+            ws.onopen = () => {
+                statusEl.textContent = "Connected";
+                statusEl.className = "connected";
+                reconnectAttempts = 0;
+            };
+
+            ws.onclose = (e) => {
+                statusEl.textContent = "Disconnected";
+                statusEl.className = "disconnected";
+                reconnectAttempts++;
+                if (reconnectAttempts <= maxReconnectAttempts) {
+                    const delay = Math.min(baseReconnectDelay * Math.pow(1.5, reconnectAttempts - 1), 30000);
+                    statusEl.textContent = `Reconnecting (${reconnectAttempts})...`;
+                    setTimeout(connect, delay);
+                } else {
+                    statusEl.textContent = "Connection failed - refresh to retry";
+                }
+            };
+
+            ws.onerror = (e) => {
+                statusEl.textContent = "Connection error";
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.means) targetChannelMeans = data.means;
+                } catch(e) {}
+            };
+        }
+
+        connect();
+
+        function render() {
+            time += 0.016;
+            channelMeans.A1 += (targetChannelMeans.A1 - channelMeans.A1) * smoothFactor;
+            channelMeans.C3 += (targetChannelMeans.C3 - channelMeans.C3) * smoothFactor;
+            channelMeans.C4 += (targetChannelMeans.C4 - channelMeans.C4) * smoothFactor;
+            channelMeans.A2 += (targetChannelMeans.A2 - channelMeans.A2) * smoothFactor;
+
+            ctx.fillStyle = 'rgba(5, 5, 8, 0.2)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const baseRadius = Math.min(cx, cy) * 0.3;
+            
+            const channelVals = [channelMeans.A1, channelMeans.C3, channelMeans.C4, channelMeans.A2];
+            const colors = [
+                { main: '#00ffaa', glow: 'rgba(0, 255, 170, 0.3)' },
+                { main: '#40b4ff', glow: 'rgba(64, 180, 255, 0.3)' },
+                { main: '#b464ff', glow: 'rgba(180, 100, 255, 0.3)' },
+                { main: '#64ffc8', glow: 'rgba(100, 255, 200, 0.3)' }
+            ];
+
+            for (let ring = 0; ring < 4; ring++) {
+                const radius = baseRadius * (1 + ring * 0.4);
+                const channelVal = Math.abs(channelVals[ring]);
+                const pulse = Math.sin(time * 2 + ring) * 0.5 + 0.5;
+                
+                const lineWidth = 2 + channelVal * 0.5 + pulse * 2;
+                const alpha = 0.3 + channelVal * 0.01 + pulse * 0.2;
+                
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+                ctx.strokeStyle = colors[ring].main.replace(')', `, ${alpha})`).replace('rgb', 'rgba').replace('#', '');
+                ctx.lineWidth = lineWidth;
+                ctx.stroke();
+
+                const segments = 60;
+                for (let i = 0; i < segments; i++) {
+                    const angle = (i / segments) * Math.PI * 2 + time * 0.5;
+                    const noise = Math.sin(angle * 10 + time + ring) * (5 + channelVal * 2);
+                    const x = cx + Math.cos(angle) * (radius + noise);
+                    const y = cy + Math.sin(angle) * (radius + noise);
+                    
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2 + channelVal * 0.1, 0, Math.PI * 2);
+                    ctx.fillStyle = colors[ring].main;
+                    ctx.fill();
+                }
+
+                for (let wave = 0; wave < 3; wave++) {
+                    const waveRadius = radius + 20 + wave * 30 + Math.sin(time * 3 + wave) * 10;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, waveRadius, 0, Math.PI * 2);
+                    ctx.strokeStyle = `rgba(100, 150, 255, ${0.1 - wave * 0.03})`;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            }
+
+            const activity = (Math.abs(channelMeans.A1) + Math.abs(channelMeans.C3) + Math.abs(channelMeans.C4) + Math.abs(channelMeans.A2)) / 200;
+            const coreRadius = 20 + activity * 30;
+            const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreRadius);
+            gradient.addColorStop(0, 'rgba(100, 200, 255, 0.8)');
+            gradient.addColorStop(0.5, 'rgba(100, 150, 255, 0.4)');
+            gradient.addColorStop(1, 'rgba(50, 100, 200, 0)');
+            
+            ctx.beginPath();
+            ctx.arc(cx, cy, coreRadius, 0, Math.PI * 2);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+
+            channelsEl.innerHTML = `A1: ${channelMeans.A1.toFixed(2)}<br>C3: ${channelMeans.C3.toFixed(2)}<br>C4: ${channelMeans.C4.toFixed(2)}<br>A2: ${channelMeans.A2.toFixed(2)}`;
+
+            requestAnimationFrame(render);
+        }
+        render();
+    </script>
+</body>
+</html>
