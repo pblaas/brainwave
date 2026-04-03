@@ -8,6 +8,9 @@ Real-time brainwave visualization using Enophone EEG headphones with BrainFlow S
 ![CLI Monitor](img/brainwave_img2.png)
 ![GUI Monitor](img/brainwave_img3.png)
 ![HTTP API](img/brainwave_img4.png)
+![Flow Fields](img/brainwave_img5.png)
+![Focus Mode](img/brainwave_img6.png)
+![Relaxation Mode](img/brainwave_img7.png)
 
 ## Requirements
 
