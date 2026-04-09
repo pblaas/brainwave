@@ -187,3 +187,9 @@ The WebGL art (`enophone-art.html`) displays:
 - **Connection refused**: Ensure WebSocket server is running (`python enophone_websocket_server.py --simulate`)
 - **No data from device**: Check Bluetooth pairing and MAC address
 - **Linux requires MAC**: Unlike Windows/macOS, Linux requires explicit MAC address
+
+## Disclaimer
+
+This software is provided "as is", without warranty of any kind, express or implied. In no event shall the authors or copyright holders be liable for any claim, damages or other liability, whether in an action of contract, tort or otherwise, arising from, out of or in connection with the software or the use or other dealings in the software.
+
+This project is for educational and personal use only. It is not a medical device and should not be used for medical diagnosis or treatment. The brainwave data collected by this software may not be accurate or reliable enough for clinical purposes.
