@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enophone Brainwave Demo 17</title>
+    <title>Enophone Brainwave Demo 17 - Ocean</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -101,17 +101,6 @@
                            mix(hash2(i + vec2(0.0, 1.0)), hash2(i + vec2(1.0, 1.0)), f.x), f.y);
             }
 
-            float fbm(vec2 p) {
-                float v = 0.0;
-                float a = 0.5;
-                for (int i = 0; i < 5; i++) {
-                    v += a * noise(p);
-                    p = p * 2.0;
-                    a *= 0.5;
-                }
-                return v;
-            }
-
             void main() {
                 vec2 uv = gl_FragCoord.xy / u_resolution;
                 vec2 p = uv * 2.0 - 1.0;
@@ -123,89 +112,71 @@
                 float a2 = u_a2 / 200.0;
 
                 float activity = (abs(a1) + abs(c3) + abs(c4) + abs(a2)) / 4.0;
-                float focus = clamp(activity * 2.0, 0.0, 1.0);
+                float focus = clamp(activity * 1.5, 0.0, 1.0);
 
                 float t = u_time * 0.3;
-                vec3 color = vec3(0.0);
+                vec3 color = vec3(0.02, 0.05, 0.12);
 
-                float animSpeed = 0.15 + activity * 1.2;
+                // Sky gradient
+                color = mix(color, vec3(0.01, 0.02, 0.06), smoothstep(0.3, 0.8, p.y));
+                color = mix(color, vec3(0.08, 0.04, 0.12), smoothstep(-0.3, -0.8, p.y));
 
-                // Deep space background
-                color = vec3(0.01, 0.01, 0.03);
-                color = mix(color, vec3(0.02, 0.0, 0.04), smoothstep(-0.5, 0.5, p.y));
+                // Moon
+                vec2 moonPos = vec2(0.5, 0.6);
+                float moonDist = length(p - moonPos);
+                float moon = smoothstep(0.12, 0.11, moonDist);
+                color += vec3(0.95, 0.92, 0.85) * moon;
 
-                // Nebula clouds
-                for (float i = 0.0; i < 4.0; i++) {
-                    vec2 nebulaPos = vec2(sin(i * 1.7) * 0.6 + t * 0.02, cos(i * 2.3) * 0.4 + t * 0.015);
-                    float nebula = fbm((p - nebulaPos) * 1.5 + vec2(t * 0.1, 0.0));
-                    nebula = pow(nebula, 1.5) * 0.25;
-                    
-                    vec3 nebulaCol;
-                    if (i < 1.0) nebulaCol = vec3(0.4 + abs(a1) * 0.6, 0.0, 0.3 + abs(a1) * 0.4);
-                    else if (i < 2.0) nebulaCol = vec3(0.0, 0.2 + abs(c3) * 0.5, 0.5 + abs(c3) * 0.5);
-                    else if (i < 3.0) nebulaCol = vec3(0.2 + abs(c4) * 0.4, 0.0, 0.4 + abs(c4) * 0.6);
-                    else nebulaCol = vec3(0.3 + abs(a2) * 0.4, 0.3 + abs(a2) * 0.4, 0.0);
-                    
-                    color += nebulaCol * nebula;
+                // Moon reflection on water
+                for (float i = 0.0; i < 8.0; i++) {
+                    float reflectY = -0.1 - i * 0.08;
+                    float reflectDist = length(p - vec2(moonPos.x, reflectY)) * (1.0 + i * 0.3);
+                    float reflect = exp(-reflectDist * 8.0) * (1.0 - i * 0.1);
+                    reflect *= smoothstep(-0.6, 0.0, p.y);
+                    float shimmer = sin(t * 3.0 + i * 2.0) * 0.5 + 0.5;
+                    color += vec3(0.7, 0.75, 0.6) * reflect * shimmer;
                 }
 
-                // Stars
-                for (int i = 0; i < 100; i++) {
+                // Ocean waves
+                for (float layer = 0.0; layer < 5.0; layer++) {
+                    float waveY = -0.9 + layer * 0.25;
+                    float waveDist = p.y - waveY;
+                    if (waveDist < 0.0 && waveDist > -0.3) {
+                        float wave = sin(p.x * 4.0 + t * (1.5 + layer * 0.3) + layer) * (0.04 + layer * 0.01);
+                        wave += sin(p.x * 7.0 - t * (1.0 + layer * 0.2)) * 0.02;
+                        
+                        float waveLine = smoothstep(0.0, 0.02, waveDist + wave);
+                        waveLine *= smoothstep(-0.3, 0.0, waveDist);
+                        
+                        vec3 waveCol = mix(vec3(0.05, 0.12, 0.2), vec3(0.08, 0.18, 0.28), layer / 5.0);
+                        waveCol += vec3(c3 * 0.1, c4 * 0.08, a2 * 0.05);
+                        color = mix(color, waveCol, waveLine);
+                    }
+                }
+
+                // Foam on waves
+                for (float i = 0.0; i < 12.0; i++) {
+                    float foamX = hash(i * 3.0) * 2.5 - 1.25;
+                    float foamY = -0.6 + hash(i * 4.0) * 0.3;
+                    float foamDist = length(p - vec2(foamX, foamY));
+                    float foam = smoothstep(0.025, 0.0, foamDist);
+                    float foamAnim = sin(t * 2.0 + i) * 0.5 + 0.5;
+                    color += vec3(0.6, 0.7, 0.8) * foam * foamAnim * 0.3;
+                }
+
+                // Distant stars in sky
+                for (int i = 0; i < 30; i++) {
                     float fi = float(i);
-                    vec2 starPos = vec2(
-                        hash(fi * 1.1) * 3.5 - 1.75,
-                        hash(fi * 2.2) * 2.5 - 1.25
-                    );
+                    vec2 starPos = vec2(hash(fi * 1.1) * 2.0 - 1.0, hash(fi * 2.2) * 0.6 + 0.2);
+                    if (starPos.y < 0.0) continue;
                     float starDist = length(p - starPos);
-                    float twinkle = sin(t * 3.0 + fi * 1.5) * 0.5 + 0.5;
-                    float starSize = 0.008 + activity * 0.008;
-                    float star = smoothstep(starSize, 0.0, starDist) * twinkle;
-                    float brightness = 0.3 + activity * 0.7;
-                    color += vec3(0.9, 0.95, 1.0) * star * brightness;
+                    float twinkle = sin(t * 2.5 + fi * 1.5) * 0.5 + 0.5;
+                    float star = smoothstep(0.01, 0.0, starDist) * twinkle;
+                    color += vec3(0.9, 0.9, 1.0) * star * 0.5;
                 }
-
-                // Shooting stars
-                for (float i = 0.0; i < 3.0; i++) {
-                    float shootT = mod(t * (1.0 + activity) + i * 2.0, 5.0);
-                    vec2 shootStart = vec2(-1.2 + shootT * 0.4, 0.8 - shootT * 0.2);
-                    vec2 shootEnd = shootStart + vec2(0.4, -0.2);
-                    float shootDist = length(p - mix(shootStart, shootEnd, 0.5));
-                    float shoot = exp(-shootDist * 25.0) * smoothstep(5.0, 0.0, shootT);
-                    color += vec3(0.8, 0.9, 1.0) * shoot * (0.3 + activity * 0.7);
-                }
-
-                // Planet
-                vec2 planetPos = vec2(-0.3, -0.15);
-                float planetDist = length(p - planetPos);
-                float planetSize = 0.18 + activity * 0.06;
-                float planet = smoothstep(planetSize + 0.005, planetSize, planetDist);
-                vec3 planetCol = vec3(0.15, 0.25, 0.5);
-                planetCol.r += abs(a1) * 0.4;
-                planetCol.g += abs(c3) * 0.3;
-                planetCol.b += abs(c4) * 0.4;
-                color += planetCol * planet;
-
-                // Planet ring
-                float ringAngle = atan(p.y - planetPos.y, p.x - planetPos.x);
-                float ringDist = length(p - planetPos);
-                float ring = smoothstep(planetSize + 0.08, planetSize + 0.06, ringDist) * smoothstep(planetSize + 0.15, planetSize + 0.08, ringDist);
-                ring *= smoothstep(0.3, 0.0, abs(sin(ringAngle * 2.0 + t * 0.5)));
-                vec3 ringCol = mix(vec3(0.6, 0.5, 0.4), vec3(0.8, 0.7, 0.6), sin(t + p.x * 10.0) * 0.5 + 0.5);
-                color += ringCol * ring * (0.4 + activity * 0.4);
-
-                // Planet glow
-                float glow = exp(-planetDist * 4.0) * 0.15 * (0.5 + activity * 0.5);
-                color += vec3(0.1, 0.2, 0.4) * glow;
-
-                // Central star/sun
-                vec2 sunPos = vec2(0.55, 0.45);
-                float sunDist = length(p - sunPos);
-                float sun = exp(-sunDist * 3.0) * 0.5;
-                float sunPulse = sin(t * 2.0) * 0.1 + 0.9;
-                color += vec3(1.0, 0.9, 0.7) * sun * sunPulse;
 
                 // Vignette
-                float vignette = 1.0 - smoothstep(0.5, 1.4, length(p));
+                float vignette = 1.0 - smoothstep(0.5, 1.2, length(p));
                 color *= vignette;
 
                 color = clamp(color, 0.0, 1.0);
